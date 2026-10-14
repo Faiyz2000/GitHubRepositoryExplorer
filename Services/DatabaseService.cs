@@ -67,7 +67,18 @@ public sealed class DatabaseService
     public void UpsertRepository(RepositoryRecord r)
     {
         using var c = Open(CatalogPath);
+        using var tx = c.BeginTransaction();
+        // Replace a URL-only placeholder row with the real GitHub numeric ID after metadata is fetched.
+        using (var cleanup = c.CreateCommand())
+        {
+            cleanup.Transaction = tx;
+            cleanup.CommandText = "DELETE FROM Repositories WHERE FullName=@name AND RepositoryId<>@id";
+            cleanup.Parameters.AddWithValue("@name", r.FullName);
+            cleanup.Parameters.AddWithValue("@id", r.RepositoryId);
+            cleanup.ExecuteNonQuery();
+        }
         using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = @"INSERT INTO Repositories VALUES(@id,@name,@url,@desc,@lang,@stars,@forks,@branch,@path,@status,@updated)
         ON CONFLICT(RepositoryId) DO UPDATE SET FullName=excluded.FullName,Url=excluded.Url,Description=excluded.Description,
         Language=excluded.Language,Stars=excluded.Stars,Forks=excluded.Forks,DefaultBranch=excluded.DefaultBranch,
@@ -78,6 +89,7 @@ public sealed class DatabaseService
         cmd.Parameters.AddWithValue("@forks",r.Forks); cmd.Parameters.AddWithValue("@branch",r.DefaultBranch);
         cmd.Parameters.AddWithValue("@path",r.LocalPath); cmd.Parameters.AddWithValue("@status",r.Status);
         cmd.Parameters.AddWithValue("@updated",r.LastUpdatedUtc); cmd.ExecuteNonQuery();
+        tx.Commit();
     }
 
     public void SaveDetails(string id, string section, string json)
