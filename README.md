@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.4.0** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.5.0** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -14,14 +14,14 @@
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
 
-## v0.4.0
+## v0.5.0
 
 - Split **Download Source** and **Archive Repository** into separate operations.
 - Added **Download User Repositories** for a GitHub user profile URL, such as `https://github.com/morluto`.
-- User repository discovery uses the GitHub REST API with 100 repositories per page and continues through all pages. Each repository's default-branch ZIP is downloaded and extracted sequentially, with per-repository success/failure logging and cancellation support.
+- Source-only repository discovery reads the public GitHub profile's paginated HTML repository list; it does not call the GitHub REST API. Each repository page is inspected for its default branch, then its ZIP is downloaded directly from `codeload.github.com`. Downloads therefore do not consume the GitHub REST API request quota. GitHub may still throttle website/archive traffic.
 - Added a determinate repository-count progress bar for single-repository downloads/archives and bulk user downloads. Bulk mode shows completed repositories out of the total; while the profile repository list is being fetched, the bar indicates activity.
 - The bulk operation asks for confirmation after listing repositories and before downloading them.
-- The application title and assembly/file versions are updated to 0.4.0.
+- The application title and assembly/file versions are updated to 0.5.0.
 
 ## Project features
 
@@ -29,11 +29,11 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - Two databases: `RepositoryCatalog.db` for the repository library and `RepositoryDetails.db` for per-repository metadata and archive events.
 - **Download Source**: downloads the selected repository's default-branch ZIP and extracts the source into the output folder. It does not register the repository or capture metadata.
 - **Archive Repository**: downloads and extracts the default-branch source, registers repository metadata in the catalog database, and captures supported GitHub API metadata.
-- **Download User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public owned repositories across all API pages, then runs the same source-download workflow for each repository. Each gets a `source.zip` plus extracted files under its own folder. It does not register repositories or capture metadata. Forks owned by the user are included when GitHub lists them. This workflow targets public repositories.
+- **Download User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public repositories from paginated GitHub website pages, then runs the same source-download workflow for each repository. Each gets a `source.zip` plus extracted files under its own folder. It does not register repositories or capture metadata. Forks owned by the user are included when GitHub lists them. This workflow targets public repositories.
 - Searchable repository grid, details panel, repository-count progress bar and activity log, cancel control.
 - Responsive docking/split layout, Per-Monitor-V2 DPI awareness, Font − / Font + controls.
 - Open archive, basic verification, optional HTML export.
-- Optional GitHub personal access token to improve API rate limits and access permitted private data.
+- Optional GitHub personal access token for **Archive Repository** API metadata access. It is not needed for source-only downloads, which target public repositories.
 
 ## Using user-profile downloads
 
@@ -60,4 +60,4 @@ Databases are created in `%LOCALAPPDATA%\GitHubRepositoryExplorer\`. Source arch
 
 ## Scope and limitations
 
-This is a local source-and-metadata archiver, not a complete GitHub website mirror. Source downloads include the default branch only. Metadata collection is limited to the API sections currently implemented and usually to the first 100 records per section. Full Git history, source for every branch/tag, all paginated issues and pull requests, Wiki, Discussions, Actions logs, and every linked/binary asset are not mirrored. User-profile downloads process repositories sequentially and may take considerable time or encounter GitHub API rate limits. Build verification has not been performed in the generation environment.
+This is a local source-and-metadata archiver, not a complete GitHub website mirror. Source downloads include the default branch only. Metadata collection is limited to the API sections currently implemented and usually to the first 100 records per section. Full Git history, source for every branch/tag, all paginated issues and pull requests, Wiki, Discussions, Actions logs, and every linked/binary asset are not mirrored. Source-only downloads avoid the GitHub REST API quota by using public GitHub HTML pages and codeload ZIPs. GitHub can still throttle website/archive traffic, and changes to its HTML page structure may require an application update. The metadata-rich Archive Repository workflow still uses the REST API and remains subject to its rate limits. Build verification has not been performed in the generation environment.
