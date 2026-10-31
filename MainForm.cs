@@ -50,7 +50,7 @@ public sealed class MainForm : Form
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         AddLabeled(top, "GitHub URL", _url, 0, 1);
-        AddLabeled(top, "Archive folder", _output, 2, 3);
+        AddLabeled(top, "Output folder", _output, 2, 3);
         _url.PlaceholderText = "Repository URL or user profile URL (https://github.com/username)";
         top.Controls.Add(MakeButton("Browse…", (_, _) => BrowseOutput()), 4, 0);
         root.Controls.Add(top, 0, 0);
@@ -267,7 +267,7 @@ split.SizeChanged += (_, _) =>
 
     private void BrowseOutput()
     {
-        using var d=new FolderBrowserDialog{SelectedPath=Directory.Exists(_output.Text)?_output.Text:_defaultOutput,Description="Choose where repository archives are stored"};
+        using var d=new FolderBrowserDialog{SelectedPath=Directory.Exists(_output.Text)?_output.Text:_defaultOutput,Description="Choose where downloaded source files and repository archives are stored"};
         if(d.ShowDialog(this)==DialogResult.OK)_output.Text=d.SelectedPath;
     }
 
