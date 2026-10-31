@@ -24,7 +24,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.3.0";
+        Text = "GitHub Repository Explorer — v0.4.0";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -176,9 +176,14 @@ split.SizeChanged += (_, _) =>
             _cts = new CancellationTokenSource();
             SetOperationButtons(false);
             _cancelButton.Enabled = true;
-            _progress.Style = ProgressBarStyle.Marquee;
-            var progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
+            _progress.Style = ProgressBarStyle.Blocks;
+            _progress.Minimum = 0;
+            _progress.Maximum = 1;
+            _progress.Value = 0;
+            IProgress<string> progress = new Progress<string>(m => { _status.Text = $"0/1 repositories completed — {m}"; AppendLog(m); });
             await _archive.DownloadSourceAsync(url, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+            _progress.Value = 1;
+            _status.Text = "1/1 repositories completed";
             MessageBox.Show(this, "Source download completed. The ZIP and extracted source files were saved under the output folder.", "Download Source");
         }
         catch (OperationCanceledException) { AppendLog("Download cancelled."); _status.Text = "Cancelled"; }
@@ -205,8 +210,8 @@ split.SizeChanged += (_, _) =>
             SetOperationButtons(false);
             _cancelButton.Enabled = true;
             _progress.Style = ProgressBarStyle.Marquee;
-            IProgress<string> progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
-            var urls = await _archive.GetUserRepositoryUrlsAsync(profileUrl, _token.Text, progress, _cts.Token);
+            IProgress<string> listingProgress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
+            var urls = await _archive.GetUserRepositoryUrlsAsync(profileUrl, _token.Text, listingProgress, _cts.Token);
             if (urls.Count == 0)
             {
                 MessageBox.Show(this, "No public repositories were found for this user.", "Nothing to archive");
@@ -215,19 +220,36 @@ split.SizeChanged += (_, _) =>
             var answer = MessageBox.Show(this, $"Found {urls.Count} public repositories. Archive them sequentially using the same workflow as a single repository?{Environment.NewLine}{Environment.NewLine}This may take a while and will use GitHub API rate limits.", "Download user repositories", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (answer != DialogResult.Yes) { AppendLog("User repository download cancelled before starting."); return; }
             var completed = 0;
+            var processed = 0;
             var failed = new List<string>();
+            _progress.Style = ProgressBarStyle.Blocks;
+            _progress.Minimum = 0;
+            _progress.Maximum = urls.Count;
+            _progress.Value = 0;
+            IProgress<string> progress = new Progress<string>(m =>
+            {
+                _status.Text = $"{processed}/{urls.Count} repositories completed — {m}";
+                AppendLog(m);
+            });
+            _status.Text = $"0/{urls.Count} repositories completed";
             foreach (var repositoryUrl in urls)
             {
                 _cts.Token.ThrowIfCancellationRequested();
                 var name = new Uri(repositoryUrl).AbsolutePath.Trim('/');
                 try
                 {
-                    progress.Report($"Archiving {name} ({completed + failed.Count + 1}/{urls.Count})...");
+                    progress.Report($"Downloading {name} ({processed + 1}/{urls.Count})...");
                     await _archive.DownloadSourceAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token);
                     completed++;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { failed.Add(name); AppendLog($"FAILED {name}: {ex.Message}"); }
+                finally
+                {
+                    processed++;
+                    _progress.Value = processed;
+                    _status.Text = $"{processed}/{urls.Count} repositories completed";
+                }
             }
             var summary = $"User repository download finished.{Environment.NewLine}Successful: {completed}{Environment.NewLine}Failed: {failed.Count}";
             if (failed.Count > 0) summary += Environment.NewLine + Environment.NewLine + "Failed repositories:" + Environment.NewLine + string.Join(Environment.NewLine, failed);
@@ -256,9 +278,11 @@ split.SizeChanged += (_, _) =>
         var url=_url.Text.Trim(); if(string.IsNullOrWhiteSpace(url)&&Selected() is{} selected)url=selected.Url;
         if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Host!="github.com"){MessageBox.Show(this,"Enter a GitHub repository URL or select a repository.");return;}
         try{
-            Directory.CreateDirectory(_output.Text.Trim());_cts=new CancellationTokenSource();SetOperationButtons(false);_cancelButton.Enabled=true;_progress.Style=ProgressBarStyle.Marquee;
-            var progress=new Progress<string>(m=>{_status.Text=m;AppendLog(m);});
+            Directory.CreateDirectory(_output.Text.Trim());_cts=new CancellationTokenSource();SetOperationButtons(false);_cancelButton.Enabled=true;
+            _progress.Style=ProgressBarStyle.Blocks;_progress.Minimum=0;_progress.Maximum=1;_progress.Value=0;
+            IProgress<string> progress=new Progress<string>(m=>{_status.Text=$"0/1 repositories completed — {m}";AppendLog(m);});
             var r=await _archive.ArchiveAsync(url,_output.Text.Trim(),_token.Text,progress,_cts.Token);
+            _progress.Value=1;_status.Text="1/1 repositories completed";
             AppendLog($"Archived {r.FullName} to {r.LocalPath}");MessageBox.Show(this,$"Archive completed.{Environment.NewLine}{r.LocalPath}","GitHub Repository Explorer"); 
         }catch(OperationCanceledException){AppendLog("Operation cancelled.");_status.Text="Cancelled";}
         catch(Exception ex){AppendLog("ERROR: "+ex.Message);MessageBox.Show(this,ex.Message,"Archive failed",MessageBoxButtons.OK,MessageBoxIcon.Error);}
