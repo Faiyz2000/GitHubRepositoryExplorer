@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     private readonly TextBox _url = new(), _output = new(), _token = new(), _search = new(), _details = new(), _log = new();
     private readonly ProgressBar _progress = new();
     private readonly Label _status = new();
-    private readonly Button _archiveButton = new(), _cancelButton = new();
+    private readonly Button _downloadButton = new(), _archiveButton = new(), _userArchiveButton = new(), _cancelButton = new();
     private CancellationTokenSource? _cts;
     private float _fontSize = 9.5f;
     private readonly string _defaultOutput = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "GitHubArchives");
@@ -24,7 +24,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.2.1";
+        Text = "GitHub Repository Explorer — v0.3.0";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -51,14 +51,18 @@ public sealed class MainForm : Form
         top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         AddLabeled(top, "GitHub URL", _url, 0, 1);
         AddLabeled(top, "Archive folder", _output, 2, 3);
-        _url.PlaceholderText = "https://github.com/owner/repository";
+        _url.PlaceholderText = "Repository URL or user profile URL (https://github.com/username)";
         top.Controls.Add(MakeButton("Browse…", (_, _) => BrowseOutput()), 4, 0);
         root.Controls.Add(top, 0, 0);
 
         var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 8, 0, 8) };
         actions.Controls.Add(MakeButton("Add Repository", (_, _) => AddRepository()));
-        _archiveButton.Text = "Download / Archive"; _archiveButton.AutoSize = true;
+        _downloadButton.Text = "Download Source"; _downloadButton.AutoSize = true;
+        _downloadButton.Click += async (_, _) => await DownloadSelectedOrUrlAsync(); actions.Controls.Add(_downloadButton);
+        _archiveButton.Text = "Archive Repository"; _archiveButton.AutoSize = true;
         _archiveButton.Click += async (_, _) => await ArchiveSelectedOrUrlAsync(); actions.Controls.Add(_archiveButton);
+        _userArchiveButton.Text = "Archive User Repositories"; _userArchiveButton.AutoSize = true;
+        _userArchiveButton.Click += async (_, _) => await ArchiveUserRepositoriesAsync(); actions.Controls.Add(_userArchiveButton);
         actions.Controls.Add(MakeButton("Update Archive", async (_, _) => await ArchiveSelectedOrUrlAsync()));
         actions.Controls.Add(MakeButton("Open Archive", (_, _) => OpenSelected()));
         actions.Controls.Add(MakeButton("Verify Archive", (_, _) => VerifySelected()));
@@ -162,18 +166,103 @@ split.SizeChanged += (_, _) =>
         catch(Exception ex){MessageBox.Show(this,ex.Message,"Could not add repository");}
     }
 
+    private async Task DownloadSelectedOrUrlAsync()
+    {
+        var url = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected) url = selected.Url;
+        try
+        {
+            Directory.CreateDirectory(_output.Text.Trim());
+            _cts = new CancellationTokenSource();
+            SetOperationButtons(false);
+            _cancelButton.Enabled = true;
+            _progress.Style = ProgressBarStyle.Marquee;
+            var progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
+            await _archive.DownloadSourceAsync(url, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+            MessageBox.Show(this, "Source download completed. The ZIP and extracted source files were saved under the output folder.", "Download Source");
+        }
+        catch (OperationCanceledException) { AppendLog("Download cancelled."); _status.Text = "Cancelled"; }
+        catch (Exception ex) { AppendLog("ERROR: " + ex.Message); MessageBox.Show(this, ex.Message, "Download failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally
+        {
+            _progress.Style = ProgressBarStyle.Blocks; _progress.Value = 0;
+            SetOperationButtons(true); _cancelButton.Enabled = false; _cts?.Dispose(); _cts = null; RefreshRows();
+        }
+    }
+
+    private async Task ArchiveUserRepositoriesAsync()
+    {
+        var profileUrl = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(profileUrl))
+        {
+            MessageBox.Show(this, "Enter a GitHub user profile URL, for example https://github.com/morluto.", "User profile required");
+            return;
+        }
+        try
+        {
+            Directory.CreateDirectory(_output.Text.Trim());
+            _cts = new CancellationTokenSource();
+            SetOperationButtons(false);
+            _cancelButton.Enabled = true;
+            _progress.Style = ProgressBarStyle.Marquee;
+            var progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
+            var urls = await _archive.GetUserRepositoryUrlsAsync(profileUrl, _token.Text, progress, _cts.Token);
+            if (urls.Count == 0)
+            {
+                MessageBox.Show(this, "No public repositories were found for this user.", "Nothing to archive");
+                return;
+            }
+            var answer = MessageBox.Show(this, $"Found {urls.Count} public repositories. Archive them sequentially using the same workflow as a single repository?{Environment.NewLine}{Environment.NewLine}This may take a while and will use GitHub API rate limits.", "Archive user repositories", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes) { AppendLog("User repository archive cancelled before starting."); return; }
+            var completed = 0;
+            var failed = new List<string>();
+            foreach (var repositoryUrl in urls)
+            {
+                _cts.Token.ThrowIfCancellationRequested();
+                var name = new Uri(repositoryUrl).AbsolutePath.Trim('/');
+                try
+                {
+                    progress.Report($"Archiving {name} ({completed + failed.Count + 1}/{urls.Count})...");
+                    await _archive.ArchiveAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+                    completed++;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { failed.Add(name); AppendLog($"FAILED {name}: {ex.Message}"); }
+            }
+            var summary = $"User repository archive finished.{Environment.NewLine}Successful: {completed}{Environment.NewLine}Failed: {failed.Count}";
+            if (failed.Count > 0) summary += Environment.NewLine + Environment.NewLine + "Failed repositories:" + Environment.NewLine + string.Join(Environment.NewLine, failed);
+            _status.Text = $"User archive complete: {completed} successful, {failed.Count} failed";
+            AppendLog(summary.Replace(Environment.NewLine, " | "));
+            MessageBox.Show(this, summary, "Archive user repositories", MessageBoxButtons.OK, failed.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        catch (OperationCanceledException) { AppendLog("Bulk user archive cancelled."); _status.Text = "Cancelled"; }
+        catch (Exception ex) { AppendLog("ERROR: " + ex.Message); MessageBox.Show(this, ex.Message, "User archive failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+        finally
+        {
+            _progress.Style = ProgressBarStyle.Blocks; _progress.Value = 0;
+            SetOperationButtons(true); _cancelButton.Enabled = false; _cts?.Dispose(); _cts = null; RefreshRows();
+        }
+    }
+
+    private void SetOperationButtons(bool enabled)
+    {
+        _downloadButton.Enabled = enabled;
+        _archiveButton.Enabled = enabled;
+        _userArchiveButton.Enabled = enabled;
+    }
+
     private async Task ArchiveSelectedOrUrlAsync()
     {
         var url=_url.Text.Trim(); if(string.IsNullOrWhiteSpace(url)&&Selected() is{} selected)url=selected.Url;
         if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Host!="github.com"){MessageBox.Show(this,"Enter a GitHub repository URL or select a repository.");return;}
         try{
-            Directory.CreateDirectory(_output.Text.Trim());_cts=new CancellationTokenSource();_archiveButton.Enabled=false;_cancelButton.Enabled=true;_progress.Style=ProgressBarStyle.Marquee;
+            Directory.CreateDirectory(_output.Text.Trim());_cts=new CancellationTokenSource();SetOperationButtons(false);_cancelButton.Enabled=true;_progress.Style=ProgressBarStyle.Marquee;
             var progress=new Progress<string>(m=>{_status.Text=m;AppendLog(m);});
             var r=await _archive.ArchiveAsync(url,_output.Text.Trim(),_token.Text,progress,_cts.Token);
             AppendLog($"Archived {r.FullName} to {r.LocalPath}");MessageBox.Show(this,$"Archive completed.{Environment.NewLine}{r.LocalPath}","GitHub Repository Explorer"); 
         }catch(OperationCanceledException){AppendLog("Operation cancelled.");_status.Text="Cancelled";}
         catch(Exception ex){AppendLog("ERROR: "+ex.Message);MessageBox.Show(this,ex.Message,"Archive failed",MessageBoxButtons.OK,MessageBoxIcon.Error);}
-        finally{_progress.Style=ProgressBarStyle.Blocks;_progress.Value=0;_archiveButton.Enabled=true;_cancelButton.Enabled=false;_cts?.Dispose();_cts=null;RefreshRows();}
+        finally{_progress.Style=ProgressBarStyle.Blocks;_progress.Value=0;SetOperationButtons(true);_cancelButton.Enabled=false;_cts?.Dispose();_cts=null;RefreshRows();}
     }
 
     private void BrowseOutput()
