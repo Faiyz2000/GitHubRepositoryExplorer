@@ -205,7 +205,7 @@ split.SizeChanged += (_, _) =>
             SetOperationButtons(false);
             _cancelButton.Enabled = true;
             _progress.Style = ProgressBarStyle.Marquee;
-            var progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
+            IProgress<string> progress = new Progress<string>(m => { _status.Text = m; AppendLog(m); });
             var urls = await _archive.GetUserRepositoryUrlsAsync(profileUrl, _token.Text, progress, _cts.Token);
             if (urls.Count == 0)
             {
