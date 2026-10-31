@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.2.0** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.2.1** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -13,6 +13,10 @@
 6. Choose **Debug → Start Debugging** (F5) or **Start Without Debugging** (Ctrl+F5).
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
+
+## v0.2.1
+- Fixed SplitContainer initialization so the form can open before its layout width is established.
+- Divider position is recalculated safely as the main window is resized.
 
 ## Project features
 
