@@ -71,7 +71,18 @@ public sealed class MainForm : Form
         actions.Controls.Add(MakeButton("Refresh List", (_, _) => RefreshRows()));
         root.Controls.Add(actions, 0, 1);
 
-        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical, SplitterDistance = 640, Panel1MinSize = 300, Panel2MinSize = 220 };
+        var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
+// The SplitContainer can initially be narrower than the requested panel widths.
+// Set the divider only after layout gives it a usable width.
+split.SizeChanged += (_, _) =>
+{
+    if (split.Width > 520)
+    {
+        var maxDistance = split.Width - 220;
+        if (maxDistance >= 300)
+            split.SplitterDistance = Math.Clamp(640, 300, maxDistance);
+    }
+};
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _search.PlaceholderText = "Search repositories by name, description, or language…"; _search.Dock = DockStyle.Top;
