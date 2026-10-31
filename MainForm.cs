@@ -24,7 +24,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.4.0";
+        Text = "GitHub Repository Explorer — v0.5.0";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -217,7 +217,7 @@ split.SizeChanged += (_, _) =>
                 MessageBox.Show(this, "No public repositories were found for this user.", "Nothing to archive");
                 return;
             }
-            var answer = MessageBox.Show(this, $"Found {urls.Count} public repositories. Archive them sequentially using the same workflow as a single repository?{Environment.NewLine}{Environment.NewLine}This may take a while and will use GitHub API rate limits.", "Download user repositories", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            var answer = MessageBox.Show(this, $"Found {urls.Count} public repositories. Archive them sequentially using the same workflow as a single repository?{Environment.NewLine}{Environment.NewLine}This downloads public source archives directly from GitHub and does not use the GitHub REST API quota.", "Download user repositories", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (answer != DialogResult.Yes) { AppendLog("User repository download cancelled before starting."); return; }
             var completed = 0;
             var processed = 0;
