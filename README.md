@@ -34,13 +34,13 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - Open archive, basic verification, optional HTML export.
 - Optional GitHub personal access token to improve API rate limits and access permitted private data.
 
-## Using user-profile archival
+## Using user-profile downloads
 
 1. Enter a profile URL in the **GitHub URL** field, for example `https://github.com/morluto`.
 2. Choose the destination in **Archive folder**.
 3. Optionally enter a GitHub personal access token.
-4. Click **Archive User Repositories** and review the repository count.
-5. Confirm to begin. The application archives repositories sequentially. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
+4. Click **Download User Repositories** and review the repository count.
+5. Confirm to begin. The application downloads repositories sequentially. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
 
 Use **Download Source** for a single repository URL (for example `https://github.com/owner/repository`), **Download User Repositories** for all public repositories owned by a user, and **Archive Repository** when you want the full supported metadata-preservation workflow for one repository.
 
