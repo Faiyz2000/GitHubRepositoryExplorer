@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using GitHubRepositoryExplorer.Models;
 
 namespace GitHubRepositoryExplorer.Services;
@@ -8,11 +9,15 @@ namespace GitHubRepositoryExplorer.Services;
 public sealed class GitHubArchiveService
 {
     private readonly HttpClient _http = new();
+    private readonly HttpClient _webHttp = new();
     private readonly DatabaseService _db;
     public GitHubArchiveService(DatabaseService db)
     {
-        _db=db; _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.2");
+        _db=db;
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.5");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        _webHttp.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.5 (public source downloader)");
+        _webHttp.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
     }
 
     public async Task<RepositoryRecord> ArchiveAsync(string inputUrl,string outputRoot,string? token,IProgress<string> progress,CancellationToken ct)
@@ -62,6 +67,8 @@ public sealed class GitHubArchiveService
         record.Status="Archived";record.LastUpdatedUtc=DateTime.UtcNow.ToString("O");_db.UpsertRepository(record);
         _db.LogEvent(id,"Archive","Default-branch source and accessible metadata archived.");progress.Report("Archive completed.");return record;
     }
+    // Source-only downloads deliberately use github.com HTML and codeload.github.com,
+    // not api.github.com. This avoids consuming the GitHub REST API request quota.
     public async Task DownloadSourceAsync(string inputUrl, string outputRoot, string? token, IProgress<string> progress, CancellationToken ct)
     {
         if (!Uri.TryCreate(inputUrl.Trim(), UriKind.Absolute, out var uri) ||
@@ -73,32 +80,39 @@ public sealed class GitHubArchiveService
             throw new InvalidOperationException("Download requires a single repository URL, not a user profile URL.");
         var owner = parts[0];
         var repo = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1];
-        SetAuthorization(token);
-        var api = $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}";
+        var repositoryUrl = $"https://github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}";
 
-        progress.Report("Reading repository details to identify its default branch...");
-        using var response = await _http.GetAsync(api, ct);
-        response.EnsureSuccessStatusCode();
-        using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-        var root = doc.RootElement;
-        var fullName = root.GetProperty("full_name").GetString() ?? $"{owner}/{repo}";
-        var branch = root.TryGetProperty("default_branch", out var b) ? b.GetString() ?? "main" : "main";
+        progress.Report($"Reading public repository page for {owner}/{repo} (no REST API calls)...");
+        using var pageResponse = await _webHttp.GetAsync(repositoryUrl, ct);
+        pageResponse.EnsureSuccessStatusCode();
+        var html = await pageResponse.Content.ReadAsStringAsync(ct);
+        var branchMatch = Regex.Match(html, @"[""'](?:defaultBranch|default_branch)[""']?\s*:\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase);
+        if (!branchMatch.Success)
+            branchMatch = Regex.Match(html, @"""defaultBranch""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+        if (!branchMatch.Success)
+            throw new InvalidOperationException($"Could not determine the default branch from {repositoryUrl}. GitHub may have changed its page format or is temporarily throttling requests.");
+        var branch = System.Net.WebUtility.HtmlDecode(branchMatch.Groups[1].Value);
+        var fullName = $"{owner}/{repo}";
         var target = Path.Combine(outputRoot, Sanitize(fullName.Replace('/', '_')));
         Directory.CreateDirectory(target);
         var zipPath = Path.Combine(target, "source.zip");
 
-        progress.Report($"Downloading {fullName} ({branch})...");
-        using (var zipResponse = await _http.GetAsync(
-            $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/zipball/{Uri.EscapeDataString(branch)}",
-            HttpCompletionOption.ResponseHeadersRead, ct))
+        // Use codeload directly rather than api.github.com/repos/.../zipball.
+        var encodedBranch = string.Join("/", branch.Split('/').Select(Uri.EscapeDataString));
+        var zipUrl = $"https://codeload.github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/zip/refs/heads/{encodedBranch}";
+        progress.Report($"Downloading {fullName} ({branch}) directly from GitHub archive host...");
+        using (var zipResponse = await _webHttp.GetAsync(zipUrl, HttpCompletionOption.ResponseHeadersRead, ct))
         {
             zipResponse.EnsureSuccessStatusCode();
-            await using var fs = File.Create(zipPath);
+            if (Directory.Exists(zipPath))
+                throw new IOException($"Cannot write ZIP because a directory already exists at: {zipPath}");
+            await using var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
             await zipResponse.Content.CopyToAsync(fs, ct);
         }
 
         var source = Path.Combine(target, "source");
         if (Directory.Exists(source)) Directory.Delete(source, true);
+        Directory.CreateDirectory(source);
         ZipFile.ExtractToDirectory(zipPath, source, true);
         progress.Report($"Download completed: {fullName} — source.zip and extracted source files saved to {target}");
     }
@@ -111,28 +125,39 @@ public sealed class GitHubArchiveService
 
         var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length != 1 || parts[0].Equals("settings", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Enter a user profile URL containing only https://github.com/username.");
+            throw new InvalidOperationException("Enter a GitHub user profile URL containing only https://github.com/username.");
         var username = parts[0];
-        SetAuthorization(token);
         var urls = new List<string>();
-        const int pageSize = 100;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        // GitHub's public repository tab is paginated HTML. We intentionally avoid
+        // /users/{username}/repos so source-only bulk downloads do not consume REST API quota.
         for (var page = 1; ; page++)
         {
             ct.ThrowIfCancellationRequested();
-            progress.Report($"Listing public repositories for {username} (page {page})...");
-            var endpoint = $"https://api.github.com/users/{Uri.EscapeDataString(username)}/repos?type=owner&sort=full_name&direction=asc&per_page={pageSize}&page={page}";
-            using var response = await _http.GetAsync(endpoint, ct);
+            progress.Report($"Listing public repositories for {username} from GitHub website (page {page})...");
+            var pageUrl = $"https://github.com/{Uri.EscapeDataString(username)}?tab=repositories&page={page}";
+            using var response = await _webHttp.GetAsync(pageUrl, ct);
             response.EnsureSuccessStatusCode();
-            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
-            var count = 0;
-            foreach (var item in doc.RootElement.EnumerateArray())
+            var html = await response.Content.ReadAsStringAsync(ct);
+            var before = seen.Count;
+            var pattern = $@"href=[""']/{Regex.Escape(username)}/([^/""?#]+)[""']";
+            foreach (Match match in Regex.Matches(html, pattern, RegexOptions.IgnoreCase))
             {
-                count++;
-                if (item.TryGetProperty("html_url", out var url) && url.ValueKind == JsonValueKind.String)
-                    urls.Add(url.GetString()!);
+                var repoName = System.Net.WebUtility.HtmlDecode(match.Groups[1].Value);
+                if (repoName.Equals("repositories", StringComparison.OrdinalIgnoreCase) ||
+                    repoName.Equals("followers", StringComparison.OrdinalIgnoreCase) ||
+                    repoName.Equals("following", StringComparison.OrdinalIgnoreCase) ||
+                    repoName.Equals("sponsors", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (seen.Add($"{username}/{repoName}"))
+                    urls.Add($"https://github.com/{Uri.EscapeDataString(username)}/{Uri.EscapeDataString(repoName)}");
             }
-            if (count < pageSize) break;
+
+            // The final page may still repeat pinned repositories, so stop when it adds none.
+            if (seen.Count == before) break;
+            // Be polite to GitHub's website; this is not a way to bypass website throttling.
+            await Task.Delay(250, ct);
         }
 
         return urls;
