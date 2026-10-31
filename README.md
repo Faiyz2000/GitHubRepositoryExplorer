@@ -37,7 +37,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 ## Using user-profile downloads
 
 1. Enter a profile URL in the **GitHub URL** field, for example `https://github.com/morluto`.
-2. Choose the destination in **Archive folder**.
+2. Choose the destination in **Output folder**.
 3. Optionally enter a GitHub personal access token.
 4. Click **Download User Repositories** and review the repository count.
 5. Confirm to begin. The application downloads repositories sequentially. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
@@ -59,4 +59,4 @@ Databases are created in `%LOCALAPPDATA%\GitHubRepositoryExplorer\`. Source arch
 
 ## Scope and limitations
 
-This is a local source-and-metadata archiver, not a complete GitHub website mirror. Source downloads include the default branch only. Metadata collection is limited to the API sections currently implemented and usually to the first 100 records per section. Full Git history, source for every branch/tag, all paginated issues and pull requests, Wiki, Discussions, Actions logs, and every linked/binary asset are not mirrored. User-profile archival processes repositories sequentially and may take considerable time or encounter GitHub API rate limits. Build verification has not been performed in the generation environment.
+This is a local source-and-metadata archiver, not a complete GitHub website mirror. Source downloads include the default branch only. Metadata collection is limited to the API sections currently implemented and usually to the first 100 records per section. Full Git history, source for every branch/tag, all paginated issues and pull requests, Wiki, Discussions, Actions logs, and every linked/binary asset are not mirrored. User-profile downloads process repositories sequentially and may take considerable time or encounter GitHub API rate limits. Build verification has not been performed in the generation environment.
