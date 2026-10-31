@@ -17,8 +17,8 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 ## v0.3.0
 
 - Split **Download Source** and **Archive Repository** into separate operations.
-- Added **Archive User Repositories** for a GitHub user profile URL, such as `https://github.com/morluto`.
-- User repository discovery uses the public GitHub REST API with 100 repositories per page and continues through all pages. Repositories are archived sequentially with per-repository success/failure logging and cancellation support.
+- Added **Download User Repositories** for a GitHub user profile URL, such as `https://github.com/morluto`.
+- User repository discovery uses the GitHub REST API with 100 repositories per page and continues through all pages. Each repository's default-branch ZIP is downloaded and extracted sequentially, with per-repository success/failure logging and cancellation support.
 - The bulk operation asks for confirmation after listing repositories and before downloading them.
 - The application title and assembly/file versions are updated to 0.3.0.
 
@@ -28,7 +28,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - Two databases: `RepositoryCatalog.db` for the repository library and `RepositoryDetails.db` for per-repository metadata and archive events.
 - **Download Source**: downloads the selected repository's default-branch ZIP and extracts the source into the output folder. It does not register the repository or capture metadata.
 - **Archive Repository**: downloads and extracts the default-branch source, registers repository metadata in the catalog database, and captures supported GitHub API metadata.
-- **Archive User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public owned repositories across all API pages, then runs the same archive workflow for each repository. Forks owned by the user are included when GitHub lists them in the user's repositories. Private repositories are not included by the public user endpoint unless access and API behavior allow them; this workflow is designed around public repositories.
+- **Download User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public owned repositories across all API pages, then runs the same source-download workflow for each repository. Each gets a `source.zip` plus extracted files under its own folder. It does not register repositories or capture metadata. Forks owned by the user are included when GitHub lists them. This workflow targets public repositories.
 - Searchable repository grid, details panel, progress/activity log, cancel control.
 - Responsive docking/split layout, Per-Monitor-V2 DPI awareness, Font − / Font + controls.
 - Open archive, basic verification, optional HTML export.
@@ -42,7 +42,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 4. Click **Archive User Repositories** and review the repository count.
 5. Confirm to begin. The application archives repositories sequentially. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
 
-Use **Download Source** for a single repository URL (for example `https://github.com/owner/repository`), and **Archive Repository** when you want the full supported metadata-preservation workflow for one repository.
+Use **Download Source** for a single repository URL (for example `https://github.com/owner/repository`), **Download User Repositories** for all public repositories owned by a user, and **Archive Repository** when you want the full supported metadata-preservation workflow for one repository.
 
 ## Build from the command line
 
