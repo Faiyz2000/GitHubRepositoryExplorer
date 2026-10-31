@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.3.0** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.4.0** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -14,13 +14,14 @@
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
 
-## v0.3.0
+## v0.4.0
 
 - Split **Download Source** and **Archive Repository** into separate operations.
 - Added **Download User Repositories** for a GitHub user profile URL, such as `https://github.com/morluto`.
 - User repository discovery uses the GitHub REST API with 100 repositories per page and continues through all pages. Each repository's default-branch ZIP is downloaded and extracted sequentially, with per-repository success/failure logging and cancellation support.
+- Added a determinate repository-count progress bar for single-repository downloads/archives and bulk user downloads. Bulk mode shows completed repositories out of the total; while the profile repository list is being fetched, the bar indicates activity.
 - The bulk operation asks for confirmation after listing repositories and before downloading them.
-- The application title and assembly/file versions are updated to 0.3.0.
+- The application title and assembly/file versions are updated to 0.4.0.
 
 ## Project features
 
@@ -29,7 +30,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - **Download Source**: downloads the selected repository's default-branch ZIP and extracts the source into the output folder. It does not register the repository or capture metadata.
 - **Archive Repository**: downloads and extracts the default-branch source, registers repository metadata in the catalog database, and captures supported GitHub API metadata.
 - **Download User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public owned repositories across all API pages, then runs the same source-download workflow for each repository. Each gets a `source.zip` plus extracted files under its own folder. It does not register repositories or capture metadata. Forks owned by the user are included when GitHub lists them. This workflow targets public repositories.
-- Searchable repository grid, details panel, progress/activity log, cancel control.
+- Searchable repository grid, details panel, repository-count progress bar and activity log, cancel control.
 - Responsive docking/split layout, Per-Monitor-V2 DPI awareness, Font − / Font + controls.
 - Open archive, basic verification, optional HTML export.
 - Optional GitHub personal access token to improve API rate limits and access permitted private data.
@@ -40,7 +41,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 2. Choose the destination in **Output folder**.
 3. Optionally enter a GitHub personal access token.
 4. Click **Download User Repositories** and review the repository count.
-5. Confirm to begin. The application downloads repositories sequentially. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
+5. Confirm to begin. The progress bar shows how many repositories have finished out of the total (for example, `4/12`). A repository counts as processed if it succeeds or fails. If one repository fails, it logs the failure and continues with the remaining repositories. Click **Cancel** to stop the operation.
 
 Use **Download Source** for a single repository URL (for example `https://github.com/owner/repository`), **Download User Repositories** for all public repositories owned by a user, and **Archive Repository** when you want the full supported metadata-preservation workflow for one repository.
 
