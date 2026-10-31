@@ -61,8 +61,8 @@ public sealed class MainForm : Form
         _downloadButton.Click += async (_, _) => await DownloadSelectedOrUrlAsync(); actions.Controls.Add(_downloadButton);
         _archiveButton.Text = "Archive Repository"; _archiveButton.AutoSize = true;
         _archiveButton.Click += async (_, _) => await ArchiveSelectedOrUrlAsync(); actions.Controls.Add(_archiveButton);
-        _userArchiveButton.Text = "Download User Repositories"; _userArchiveButton.AutoSize = true;
-        _userArchiveButton.Click += async (_, _) => await DownloadUserRepositoriesAsync(); actions.Controls.Add(_userArchiveButton);
+        _userDownloadButton.Text = "Download User Repositories"; _userDownloadButton.AutoSize = true;
+        _userDownloadButton.Click += async (_, _) => await DownloadUserRepositoriesAsync(); actions.Controls.Add(_userDownloadButton);
         actions.Controls.Add(MakeButton("Update Archive", async (_, _) => await ArchiveSelectedOrUrlAsync()));
         actions.Controls.Add(MakeButton("Open Archive", (_, _) => OpenSelected()));
         actions.Controls.Add(MakeButton("Verify Archive", (_, _) => VerifySelected()));
@@ -190,7 +190,7 @@ split.SizeChanged += (_, _) =>
         }
     }
 
-    private async Task ArchiveUserRepositoriesAsync()
+    private async Task DownloadUserRepositoriesAsync()
     {
         var profileUrl = _url.Text.Trim();
         if (string.IsNullOrWhiteSpace(profileUrl))
@@ -233,7 +233,7 @@ split.SizeChanged += (_, _) =>
             if (failed.Count > 0) summary += Environment.NewLine + Environment.NewLine + "Failed repositories:" + Environment.NewLine + string.Join(Environment.NewLine, failed);
             _status.Text = $"User download complete: {completed} successful, {failed.Count} failed";
             AppendLog(summary.Replace(Environment.NewLine, " | "));
-            MessageBox.Show(this, summary, "Archive user repositories", MessageBoxButtons.OK, failed.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+            MessageBox.Show(this, summary, "Download user repositories", MessageBoxButtons.OK, failed.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         }
         catch (OperationCanceledException) { AppendLog("Bulk user download cancelled."); _status.Text = "Cancelled"; }
         catch (Exception ex) { AppendLog("ERROR: " + ex.Message); MessageBox.Show(this, ex.Message, "User download failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
@@ -248,7 +248,7 @@ split.SizeChanged += (_, _) =>
     {
         _downloadButton.Enabled = enabled;
         _archiveButton.Enabled = enabled;
-        _userArchiveButton.Enabled = enabled;
+        _userDownloadButton.Enabled = enabled;
     }
 
     private async Task ArchiveSelectedOrUrlAsync()
