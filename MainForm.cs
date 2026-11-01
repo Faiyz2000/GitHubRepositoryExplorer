@@ -54,6 +54,7 @@ public sealed class MainForm : Form
         AddLabeled(top, "GitHub URL", _url, 0, 1);
         AddLabeled(top, "Output folder", _output, 2, 3);
         _url.PlaceholderText = "Repository URL or user profile URL (https://github.com/username)";
+        _url.TextChanged += (_, _) => UpdateUrlAvailabilityStatus();
         top.Controls.Add(MakeButton("Browse…", (_, _) => BrowseOutput()), 4, 0);
         root.Controls.Add(top, 0, 0);
 
@@ -218,6 +219,20 @@ split.SizeChanged += (_, _) =>
         var r=new RepositoryRecord{RepositoryId="pending:"+name.ToLowerInvariant(),FullName=name,Url=$"https://github.com/{name}",Status="Registered"};
         try{_db.UpsertRepository(r);_db.LogEvent(r.RepositoryId,"Registered","Repository registered from URL.");RefreshRows();AppendLog($"Registered {name}");}
         catch(Exception ex){MessageBox.Show(this,ex.Message,"Could not add repository");}
+    }
+
+    private void UpdateUrlAvailabilityStatus()
+    {
+        var url = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(url) ||
+            !TryGetRepositoryFolder(url, _output.Text.Trim(), out var target))
+            return;
+
+        if (Directory.Exists(target) &&
+            (File.Exists(Path.Combine(target, "source.zip")) || Directory.Exists(Path.Combine(target, "source"))))
+            _status.Text = $"Local copy found: {Path.GetFileName(target)}. Download Source will ask before replacing it.";
+        else
+            _status.Text = "No local source copy found for this repository. Download Source can download it.";
     }
 
     private static bool TryGetRepositoryFolder(string url, string outputRoot, out string target)
