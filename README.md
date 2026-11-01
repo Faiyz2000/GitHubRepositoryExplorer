@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.6.0** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.7.0** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -14,7 +14,14 @@
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
 
-## v0.6.0
+## v0.7.0
+
+- **Refresh List** retains its original folder-discovery/list-refresh behavior and then refreshes public repository metadata from GitHub repository pages, without calling the GitHub REST API. Metadata includes stars, forks, primary language, description and default branch when GitHub exposes those fields.
+- Clicking a repository row fills the GitHub URL field with that repository URL.
+- **Download Source** checks whether a local source ZIP or extracted source folder already exists. It asks before downloading again and replacing existing source files.
+- **Download User Repositories** skips repositories that already have a local source archive, reports downloaded/skipped/failed counts, and adds a short pause between successful downloads to reduce website throttling.
+
+## Previous release: v0.6.0
 
 - Changed the default output folder to `D:\GitHubArchives`, outside protected user-profile folders.
 - Added clickable grid-column sorting. Sorting moves complete repository records together and shows an ascending/descending indicator.
