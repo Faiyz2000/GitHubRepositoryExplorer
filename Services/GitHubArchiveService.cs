@@ -172,10 +172,10 @@ public sealed class GitHubArchiveService
     private static string? ExtractMetaContent(string html, string property)
     {
         var escaped = Regex.Escape(property);
-        var match = Regex.Match(html, @"<meta\\s+[^>]*(?:property|name)=['""]" + escaped + @"['""][^>]*content=['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
+        var match = Regex.Match(html, @"<meta\s+[^>]*(?:property|name)=['""]" + escaped + @"['""][^>]*content=['""]([^'""]*)['""]", RegexOptions.IgnoreCase);
         if (!match.Success)
         {
-            match = Regex.Match(html, @"<meta\\s+[^>]*content=['""]([^'""]*)['""][^>]*(?:property|name)=['""]" + escaped + @"['""]", RegexOptions.IgnoreCase);
+            match = Regex.Match(html, @"<meta\s+[^>]*content=['""]([^'""]*)['""][^>]*(?:property|name)=['""]" + escaped + @"['""]", RegexOptions.IgnoreCase);
         }
         return match.Success ? System.Net.WebUtility.HtmlDecode(match.Groups[1].Value) : null;
     }
