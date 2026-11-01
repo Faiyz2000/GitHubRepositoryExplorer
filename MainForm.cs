@@ -16,7 +16,7 @@ public sealed class MainForm : Form
     private readonly TextBox _url = new(), _output = new(), _token = new(), _search = new(), _details = new(), _log = new();
     private readonly ProgressBar _progress = new();
     private readonly Label _status = new();
-    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new();
+    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new(), _refreshButton = new();
     private CancellationTokenSource? _cts;
     private float _fontSize = 9.5f;
     private int _sortColumnIndex = 0;
@@ -74,7 +74,7 @@ public sealed class MainForm : Form
         _cancelButton.Click += (_, _) => _cts?.Cancel(); actions.Controls.Add(_cancelButton);
         actions.Controls.Add(MakeButton("Font −", (_, _) => ChangeFont(-1)));
         actions.Controls.Add(MakeButton("Font +", (_, _) => ChangeFont(1)));
-        actions.Controls.Add(MakeButton("Refresh List", (_, _) => RefreshRows()));
+        _refreshButton.Text = "Refresh List"; _refreshButton.AutoSize = true; _refreshButton.Click += async (_, _) => await RefreshListAsync(); actions.Controls.Add(_refreshButton);
         root.Controls.Add(actions, 0, 1);
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
@@ -112,6 +112,11 @@ split.SizeChanged += (_, _) =>
         _token.Width = 220; _token.UseSystemPasswordChar = true; _token.PlaceholderText = "Personal access token (optional)";
         tokenPanel.Controls.Add(_token); footer.Controls.Add(tokenPanel, 1, 0); root.Controls.Add(footer, 0, 3);
         _grid.SelectionChanged += (_, _) => ShowSelectedDetails();
+        _grid.CellClick += (_, e) =>
+        {
+            if (e.RowIndex >= 0 && _grid.Rows[e.RowIndex].DataBoundItem is RepositoryRecord selected)
+                _url.Text = selected.Url;
+        };
     }
 
     private static void AddLabeled(TableLayoutPanel panel, string label, Control control, int labelCol, int controlCol)
@@ -215,10 +220,47 @@ split.SizeChanged += (_, _) =>
         catch(Exception ex){MessageBox.Show(this,ex.Message,"Could not add repository");}
     }
 
+    private static bool TryGetRepositoryFolder(string url, string outputRoot, out string target)
+    {
+        target = "";
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2) return false;
+        var owner = parts[0];
+        var repo = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1];
+        var folderName = $"{owner}_{repo}";
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+            folderName = folderName.Replace(invalid, '_');
+        target = Path.Combine(outputRoot, folderName);
+        return true;
+    }
+
     private async Task DownloadSelectedOrUrlAsync()
     {
         var url = _url.Text.Trim();
         if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected) url = selected.Url;
+        if (!TryGetRepositoryFolder(url, _output.Text.Trim(), out var existingTarget))
+        {
+            MessageBox.Show(this, "Enter a valid repository URL in the form https://github.com/owner/repository.", "Invalid URL");
+            return;
+        }
+
+        if (Directory.Exists(existingTarget) &&
+            (File.Exists(Path.Combine(existingTarget, "source.zip")) || Directory.Exists(Path.Combine(existingTarget, "source"))))
+        {
+            var answer = MessageBox.Show(this,
+                $"This repository already appears to exist locally:{Environment.NewLine}{existingTarget}{Environment.NewLine}{Environment.NewLine}Choose Yes to download again and replace the source files, or No to keep the existing files.",
+                "Repository already exists", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+            if (answer != DialogResult.Yes)
+            {
+                AppendLog($"Skipped download because the repository already exists locally: {existingTarget}");
+                RefreshRows();
+                return;
+            }
+        }
+
         try
         {
             Directory.CreateDirectory(_output.Text.Trim());
@@ -318,6 +360,65 @@ split.SizeChanged += (_, _) =>
         _downloadButton.Enabled = enabled;
         _archiveButton.Enabled = enabled;
         _userDownloadButton.Enabled = enabled;
+        _refreshButton.Enabled = enabled;
+    }
+
+    private async Task RefreshListAsync()
+    {
+        try
+        {
+            Directory.CreateDirectory(_output.Text.Trim());
+            RefreshRows();
+            var records = _db.GetRepositories();
+            if (records.Count == 0)
+            {
+                AppendLog("Refresh List: no repositories found in the selected archive folder or catalog.");
+                return;
+            }
+
+            _cts = new CancellationTokenSource();
+            SetOperationButtons(false);
+            _cancelButton.Enabled = true;
+            _progress.Style = ProgressBarStyle.Blocks;
+            _progress.Minimum = 0;
+            _progress.Maximum = Math.Max(1, records.Count);
+            _progress.Value = 0;
+            var completed = 0;
+            IProgress<string> progress = new Progress<string>(message =>
+            {
+                AppendLog(message);
+                _status.Text = message;
+                if (message.StartsWith("[", StringComparison.Ordinal))
+                {
+                    completed++;
+                    _progress.Value = Math.Min(_progress.Maximum, completed);
+                }
+            });
+
+            var updated = await _archive.RefreshPublicMetadataAsync(records, progress, _cts.Token);
+            _status.Text = $"Refresh complete: {updated}/{records.Count} repositories updated";
+            AppendLog($"Refresh List completed. Existing folder discovery was preserved; public metadata refreshed for {updated}/{records.Count} repositories.");
+        }
+        catch (OperationCanceledException)
+        {
+            _status.Text = "Metadata refresh cancelled";
+            AppendLog("Metadata refresh cancelled. The repository list and discovered folders remain available.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Refresh List error: " + ex);
+            MessageBox.Show(this, ex.Message, "Refresh List failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _progress.Style = ProgressBarStyle.Blocks;
+            _progress.Value = 0;
+            SetOperationButtons(true);
+            _cancelButton.Enabled = false;
+            _cts?.Dispose();
+            _cts = null;
+            RefreshRows();
+        }
     }
 
     private async Task ArchiveSelectedOrUrlAsync()
