@@ -69,6 +69,73 @@ public sealed class GitHubArchiveService
         WriteManifest(target, record);
         _db.LogEvent(id,"Archive","Default-branch source and accessible metadata archived.");progress.Report("Archive completed.");return record;
     }
+    // Refresh repository metadata from public repository HTML, without using GitHub REST API quota.
+    public async Task<int> RefreshPublicMetadataAsync(IEnumerable<RepositoryRecord> records, IProgress<string> progress, CancellationToken ct)
+    {
+        var updated = 0;
+        var items = records.ToList();
+        for (var i = 0; i < items.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var record = items[i];
+            if (!Uri.TryCreate(record.Url, UriKind.Absolute, out var uri) ||
+                !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+            {
+                progress.Report($"[{i + 1}/{items.Count}] Skipping invalid repository URL: {record.FullName}");
+                continue;
+            }
+
+            var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                progress.Report($"[{i + 1}/{items.Count}] Skipping non-repository URL: {record.Url}");
+                continue;
+            }
+
+            var owner = parts[0];
+            var repo = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1];
+            var repositoryUrl = $"https://github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}";
+            try
+            {
+                progress.Report($"[{i + 1}/{items.Count}] Refreshing metadata for {record.FullName}...");
+                using var response = await _webHttp.GetAsync(repositoryUrl, ct);
+                response.EnsureSuccessStatusCode();
+                var html = await response.Content.ReadAsStringAsync(ct);
+
+                var stars = ExtractJsonLong(html, "stargazerCount") ?? ExtractJsonLong(html, "stargazers_count");
+                var forks = ExtractJsonLong(html, "forkCount") ?? ExtractJsonLong(html, "forks_count");
+                var branch = ExtractJsonString(html, "defaultBranch") ?? ExtractJsonString(html, "default_branch");
+                var description = ExtractMetaContent(html, "og:description") ?? ExtractJsonString(html, "description");
+                var languageMatch = Regex.Match(html, @"""primaryLanguage""\s*:\s*\{\s*""name""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+
+                if (stars.HasValue) record.Stars = stars.Value;
+                if (forks.HasValue) record.Forks = forks.Value;
+                if (!string.IsNullOrWhiteSpace(branch)) record.DefaultBranch = System.Net.WebUtility.HtmlDecode(branch);
+                if (!string.IsNullOrWhiteSpace(description)) record.Description = description;
+                if (languageMatch.Success) record.Language = System.Net.WebUtility.HtmlDecode(languageMatch.Groups[1].Value);
+                record.Url = repositoryUrl;
+                record.LastUpdatedUtc = DateTime.UtcNow.ToString("O");
+
+                _db.UpsertRepository(record);
+                if (!string.IsNullOrWhiteSpace(record.LocalPath) && Directory.Exists(record.LocalPath))
+                    WriteManifest(record.LocalPath, record);
+                updated++;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                progress.Report($"[{i + 1}/{items.Count}] Could not refresh {record.FullName}: {ex.Message}");
+            }
+
+            // Avoid hammering GitHub's web frontend when refreshing a large catalog.
+            if (i < items.Count - 1)
+                await Task.Delay(300, ct);
+        }
+
+        progress.Report($"Metadata refresh finished: {updated}/{items.Count} repositories updated. No GitHub REST API calls were made.");
+        return updated;
+    }
+
     // Source-only downloads use public GitHub HTML and codeload.github.com rather than the REST API.
     public async Task DownloadSourceAsync(string inputUrl, string outputRoot, string? token, IProgress<string> progress, CancellationToken ct)
     {
