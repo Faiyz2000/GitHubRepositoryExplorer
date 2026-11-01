@@ -92,7 +92,7 @@ split.SizeChanged += (_, _) =>
         var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
         left.RowStyles.Add(new RowStyle(SizeType.AutoSize)); left.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _search.PlaceholderText = "Search repositories by name, description, or language…"; _search.Dock = DockStyle.Top;
-        _search.TextChanged += (_, _) => RefreshRows(); left.Controls.Add(_search, 0, 0);
+        _search.TextChanged += (_, _) => RefreshRows(scanArchiveFolders: false); left.Controls.Add(_search, 0, 0);
         ConfigureGrid(); left.Controls.Add(_grid, 0, 1); split.Panel1.Controls.Add(left);
 
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1 };
@@ -154,18 +154,21 @@ split.SizeChanged += (_, _) =>
 
     private RepositoryRecord? Selected() => _grid.CurrentRow?.DataBoundItem as RepositoryRecord;
 
-    private void RefreshRows()
+    private void RefreshRows(bool scanArchiveFolders = true)
     {
         var selectedId = Selected()?.RepositoryId;
-        try
+        if (scanArchiveFolders)
         {
-            var root = _output.Text.Trim();
-            if (!string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
-                _db.DiscoverArchiveFolders(root);
-        }
-        catch (Exception ex)
-        {
-            AppendLog("Archive folder scan warning: " + ex.Message);
+            try
+            {
+                var root = _output.Text.Trim();
+                if (!string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
+                    _db.DiscoverArchiveFolders(root);
+            }
+            catch (Exception ex)
+            {
+                AppendLog("Archive folder scan warning: " + ex.Message);
+            }
         }
 
         var records = _db.GetRepositories(_search.Text.Trim());
