@@ -301,7 +301,7 @@ split.SizeChanged += (_, _) =>
         catch (Exception ex) { AppendLog("ERROR: " + ex.Message); MessageBox.Show(this, ex.Message, "Download failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         finally
         {
-            _progress.Style = ProgressBarStyle.Blocks; _progress.Value = 0;
+            _progress.Style = ProgressBarStyle.Blocks;
             SetOperationButtons(true); _cancelButton.Enabled = false; _cts?.Dispose(); _cts = null; RefreshRows();
         }
     }
@@ -389,7 +389,7 @@ split.SizeChanged += (_, _) =>
         catch (Exception ex) { AppendLog("ERROR: " + ex.Message); MessageBox.Show(this, ex.Message, "User download failed", MessageBoxButtons.OK, MessageBoxIcon.Error); }
         finally
         {
-            _progress.Style = ProgressBarStyle.Blocks; _progress.Value = 0;
+            _progress.Style = ProgressBarStyle.Blocks;
             SetOperationButtons(true); _cancelButton.Enabled = false; _cts?.Dispose(); _cts = null; RefreshRows();
         }
     }
