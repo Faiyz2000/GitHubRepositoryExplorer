@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using GitHubRepositoryExplorer.Models;
 
 namespace GitHubRepositoryExplorer.Services;
@@ -62,6 +63,77 @@ public sealed class DatabaseService
             LocalPath=r.GetString(8), Status=r.GetString(9), LastUpdatedUtc=r.GetString(10)
         });
         return list;
+    }
+
+
+    public int DiscoverArchiveFolders(string rootPath)
+    {
+        if (string.IsNullOrWhiteSpace(rootPath) || !Directory.Exists(rootPath))
+            return 0;
+
+        var known = GetRepositories();
+        var knownByName = known.ToDictionary(r => r.FullName, StringComparer.OrdinalIgnoreCase);
+        var discovered = 0;
+        foreach (var folder in Directory.EnumerateDirectories(rootPath, "*", SearchOption.TopDirectoryOnly))
+        {
+            var manifestPath = Path.Combine(folder, "ArchiveManifest.json");
+            var hasArchive = File.Exists(Path.Combine(folder, "source.zip")) ||
+                             Directory.Exists(Path.Combine(folder, "source"));
+            if (!hasArchive)
+                continue;
+
+            RepositoryRecord? record = null;
+            if (File.Exists(manifestPath))
+            {
+                try
+                {
+                    record = JsonSerializer.Deserialize<RepositoryRecord>(File.ReadAllText(manifestPath));
+                }
+                catch (JsonException)
+                {
+                    // Ignore an invalid manifest and fall back to folder-name discovery.
+                }
+            }
+
+            if (record is null || string.IsNullOrWhiteSpace(record.FullName))
+            {
+                var folderName = Path.GetFileName(folder);
+                var separator = folderName.IndexOf('_');
+                if (separator <= 0 || separator >= folderName.Length - 1)
+                    continue;
+
+                var fullName = folderName[..separator] + "/" + folderName[(separator + 1)..];
+                if (knownByName.TryGetValue(fullName, out var existing))
+                {
+                    record = existing;
+                }
+                else
+                {
+                    record = new RepositoryRecord
+                    {
+                        RepositoryId = "discovered:" + fullName.ToLowerInvariant(),
+                        FullName = fullName,
+                        Url = "https://github.com/" + fullName,
+                        Status = "Discovered from folder",
+                        LastUpdatedUtc = Directory.GetLastWriteTimeUtc(folder).ToString("O")
+                    };
+                }
+            }
+
+            record.LocalPath = folder;
+            if (string.IsNullOrWhiteSpace(record.Url))
+                record.Url = "https://github.com/" + record.FullName;
+            if (string.IsNullOrWhiteSpace(record.Status) || record.Status == "Registered")
+                record.Status = hasArchive ? "Downloaded" : "Discovered from folder";
+            if (string.IsNullOrWhiteSpace(record.LastUpdatedUtc))
+                record.LastUpdatedUtc = Directory.GetLastWriteTimeUtc(folder).ToString("O");
+
+            UpsertRepository(record);
+            knownByName[record.FullName] = record;
+            discovered++;
+        }
+
+        return discovered;
     }
 
     public void UpsertRepository(RepositoryRecord r)
