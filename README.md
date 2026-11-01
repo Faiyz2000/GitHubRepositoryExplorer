@@ -16,7 +16,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 
 ## v0.6.0
 
-- Changed the default output folder to `D:\\GitHubArchives`, outside protected user-profile folders.
+- Changed the default output folder to `D:\GitHubArchives`, outside protected user-profile folders.
 - Added clickable grid-column sorting. Sorting moves complete repository records together and shows an ascending/descending indicator.
 - Added archive-folder discovery: **Refresh List** scans the selected output folder for downloaded/archived repository folders and imports them into the local catalog. Folders copied from another PC can therefore be discovered on the other machine without copying the per-user SQLite database.
 - New downloads write an `ArchiveManifest.json` sidecar with repository metadata. The app uses it to reconstruct the catalog when the folder is discovered on another PC.
@@ -29,7 +29,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - Source-only repository discovery reads the public GitHub profile's paginated HTML repository list; it does not call the GitHub REST API. Each repository page is inspected for its default branch, then its ZIP is downloaded directly from `codeload.github.com`. Downloads therefore do not consume the GitHub REST API request quota. GitHub may still throttle website/archive traffic.
 - Added a determinate repository-count progress bar for single-repository downloads/archives and bulk user downloads. Bulk mode shows completed repositories out of the total; while the profile repository list is being fetched, the bar indicates activity.
 - The bulk operation asks for confirmation after listing repositories and before downloading them.
-- The application title and assembly/file versions are updated to 0.6.0.
+- The application title and assembly/file versions were updated to 0.5.0 in that release.
 
 ## Project features
 
@@ -64,7 +64,7 @@ dotnet run --project .\GitHubRepositoryExplorer.csproj
 dotnet publish .\GitHubRepositoryExplorer.csproj -c Release -r win-x64 --self-contained true
 ```
 
-Databases are created in `%LOCALAPPDATA%\GitHubRepositoryExplorer\`. Source archives default to `%USERPROFILE%\Documents\GitHubArchives`.
+Databases are created in `%LOCALAPPDATA%\GitHubRepositoryExplorer\`. Source archives default to `D:\GitHubArchives`.
 
 ## Scope and limitations
 
