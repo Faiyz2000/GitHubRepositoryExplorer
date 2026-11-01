@@ -136,8 +136,11 @@ public sealed class GitHubArchiveService
         return updated;
     }
 
+    // Each source download reports six completed stages so the UI can track work inside a repository.
+    public const int SourceDownloadSteps = 6;
+
     // Source-only downloads use public GitHub HTML and codeload.github.com rather than the REST API.
-    public async Task DownloadSourceAsync(string inputUrl, string outputRoot, string? token, IProgress<string> progress, CancellationToken ct)
+    public async Task DownloadSourceAsync(string inputUrl, string outputRoot, string? token, IProgress<string> progress, CancellationToken ct, Action<int>? onStepProgress = null)
     {
         if (!Uri.TryCreate(inputUrl.Trim(), UriKind.Absolute, out var uri) ||
             !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
@@ -155,6 +158,7 @@ public sealed class GitHubArchiveService
         using var pageResponse = await _webHttp.GetAsync(repositoryUrl, ct);
         pageResponse.EnsureSuccessStatusCode();
         var html = await pageResponse.Content.ReadAsStringAsync(ct);
+        onStepProgress?.Invoke(1); // Repository page fetched.
 
         var branch = ExtractJsonString(html, "defaultBranch") ??
                      ExtractJsonString(html, "default_branch");
@@ -175,6 +179,7 @@ public sealed class GitHubArchiveService
         var language = languageMatch.Success ? System.Net.WebUtility.HtmlDecode(languageMatch.Groups[1].Value) : "";
         var stars = ExtractJsonLong(html, "stargazerCount") ?? ExtractJsonLong(html, "stargazers_count") ?? 0;
         var forks = ExtractJsonLong(html, "forkCount") ?? ExtractJsonLong(html, "forks_count") ?? 0;
+        onStepProgress?.Invoke(2); // Repository metadata parsed.
 
         var target = Path.Combine(outputRoot, Sanitize(fullName.Replace('/', '_')));
         Directory.CreateDirectory(target);
@@ -198,6 +203,7 @@ public sealed class GitHubArchiveService
         };
         _db.UpsertRepository(record);
         WriteManifest(target, record);
+        onStepProgress?.Invoke(3); // Destination and initial manifest prepared.
 
         var encodedBranch = string.Join("/", branch.Split('/').Select(Uri.EscapeDataString));
         var zipUrl = $"https://codeload.github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/zip/refs/heads/{encodedBranch}";
@@ -210,15 +216,18 @@ public sealed class GitHubArchiveService
             await using var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write, FileShare.None);
             await zipResponse.Content.CopyToAsync(fs, ct);
         }
+        onStepProgress?.Invoke(4); // ZIP downloaded.
 
         var source = Path.Combine(target, "source");
         if (Directory.Exists(source)) Directory.Delete(source, true);
         Directory.CreateDirectory(source);
         ZipFile.ExtractToDirectory(zipPath, source, true);
+        onStepProgress?.Invoke(5); // Source archive extracted.
         record.Status = "Downloaded";
         record.LastUpdatedUtc = DateTime.UtcNow.ToString("O");
         _db.UpsertRepository(record);
         WriteManifest(target, record);
+        onStepProgress?.Invoke(6); // Final catalog and manifest saved.
         progress.Report($"Download completed: {fullName} — stars: {stars:N0}, forks: {forks:N0}; source.zip and extracted files saved to {target}");
     }
 
