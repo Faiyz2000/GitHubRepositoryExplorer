@@ -19,12 +19,14 @@ public sealed class MainForm : Form
     private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new();
     private CancellationTokenSource? _cts;
     private float _fontSize = 9.5f;
-    private readonly string _defaultOutput = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "GitHubArchives");
+    private int _sortColumnIndex = 0;
+    private bool _sortAscending = true;
+    private readonly string _defaultOutput = @"D:\GitHubArchives";
 
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.5.0";
+        Text = "GitHub Repository Explorer — v0.6.0";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -134,6 +136,19 @@ split.SizeChanged += (_, _) =>
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Stars", DataPropertyName=nameof(RepositoryRecord.Stars), FillWeight=45, MinimumWidth=55 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Status", DataPropertyName=nameof(RepositoryRecord.Status), FillWeight=70, MinimumWidth=75 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Last Updated (UTC)", DataPropertyName=nameof(RepositoryRecord.LastUpdatedUtc), FillWeight=110, MinimumWidth=130 });
+        foreach (DataGridViewColumn column in _grid.Columns)
+            column.SortMode = DataGridViewColumnSortMode.Programmatic;
+        _grid.ColumnHeaderMouseClick += (_, e) =>
+        {
+            if (_sortColumnIndex == e.ColumnIndex)
+                _sortAscending = !_sortAscending;
+            else
+            {
+                _sortColumnIndex = e.ColumnIndex;
+                _sortAscending = true;
+            }
+            RefreshRows();
+        };
         _grid.DataSource = _rows;
     }
 
@@ -142,10 +157,41 @@ split.SizeChanged += (_, _) =>
     private void RefreshRows()
     {
         var selectedId = Selected()?.RepositoryId;
+        try
+        {
+            var root = _output.Text.Trim();
+            if (!string.IsNullOrWhiteSpace(root) && Directory.Exists(root))
+                _db.DiscoverArchiveFolders(root);
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Archive folder scan warning: " + ex.Message);
+        }
+
+        var records = _db.GetRepositories(_search.Text.Trim());
+        IOrderedEnumerable<RepositoryRecord> sorted = _sortColumnIndex switch
+        {
+            0 => _sortAscending ? records.OrderBy(r => r.FullName, StringComparer.OrdinalIgnoreCase) : records.OrderByDescending(r => r.FullName, StringComparer.OrdinalIgnoreCase),
+            1 => _sortAscending ? records.OrderBy(r => r.Language, StringComparer.OrdinalIgnoreCase) : records.OrderByDescending(r => r.Language, StringComparer.OrdinalIgnoreCase),
+            2 => _sortAscending ? records.OrderBy(r => r.Stars) : records.OrderByDescending(r => r.Stars),
+            3 => _sortAscending ? records.OrderBy(r => r.Status, StringComparer.OrdinalIgnoreCase) : records.OrderByDescending(r => r.Status, StringComparer.OrdinalIgnoreCase),
+            4 => _sortAscending ? records.OrderBy(r => r.LastUpdatedUtc, StringComparer.OrdinalIgnoreCase) : records.OrderByDescending(r => r.LastUpdatedUtc, StringComparer.OrdinalIgnoreCase),
+            _ => records.OrderBy(r => r.FullName, StringComparer.OrdinalIgnoreCase)
+        };
+
+        _rows.RaiseListChangedEvents = false;
         _rows.Clear();
-        foreach (var item in _db.GetRepositories(_search.Text.Trim())) _rows.Add(item);
+        foreach (var item in sorted) _rows.Add(item);
+        _rows.RaiseListChangedEvents = true;
+        _rows.ResetBindings();
+        for (int i = 0; i < _grid.Columns.Count; i++)
+            _grid.Columns[i].HeaderCell.SortGlyphDirection = i == _sortColumnIndex
+                ? (_sortAscending ? SortOrder.Ascending : SortOrder.Descending)
+                : SortOrder.None;
+
         if (selectedId != null)
-            for (int i=0; i<_rows.Count; i++) if (_rows[i].RepositoryId == selectedId) { _grid.Rows[i].Selected = true; break; }
+            for (int i = 0; i < _rows.Count; i++)
+                if (_rows[i].RepositoryId == selectedId) { _grid.Rows[i].Selected = true; _grid.CurrentCell = _grid.Rows[i].Cells[0]; break; }
         ShowSelectedDetails();
     }
 
