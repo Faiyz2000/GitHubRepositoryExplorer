@@ -311,6 +311,7 @@ split.SizeChanged += (_, _) =>
             var answer = MessageBox.Show(this, $"Found {urls.Count} public repositories. Archive them sequentially using the same workflow as a single repository?{Environment.NewLine}{Environment.NewLine}This downloads public source archives directly from GitHub and does not use the GitHub REST API quota.", "Download user repositories", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (answer != DialogResult.Yes) { AppendLog("User repository download cancelled before starting."); return; }
             var completed = 0;
+            var skipped = 0;
             var processed = 0;
             var failed = new List<string>();
             _progress.Style = ProgressBarStyle.Blocks;
@@ -329,9 +330,20 @@ split.SizeChanged += (_, _) =>
                 var name = new Uri(repositoryUrl).AbsolutePath.Trim('/');
                 try
                 {
-                    progress.Report($"Downloading {name} ({processed + 1}/{urls.Count})...");
-                    await _archive.DownloadSourceAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token);
-                    completed++;
+                    if (TryGetRepositoryFolder(repositoryUrl, _output.Text.Trim(), out var existingTarget) &&
+                        Directory.Exists(existingTarget) &&
+                        (File.Exists(Path.Combine(existingTarget, "source.zip")) || Directory.Exists(Path.Combine(existingTarget, "source"))))
+                    {
+                        skipped++;
+                        AppendLog($"SKIPPED {name}: a local source archive already exists at {existingTarget}");
+                    }
+                    else
+                    {
+                        progress.Report($"Downloading {name} ({processed + 1}/{urls.Count})...");
+                        await _archive.DownloadSourceAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+                        completed++;
+                        await Task.Delay(300, _cts.Token);
+                    }
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { failed.Add(name); AppendLog($"FAILED {name}: {ex.Message}"); }
@@ -340,7 +352,7 @@ split.SizeChanged += (_, _) =>
                 _progress.Value = processed;
                 _status.Text = $"{processed}/{urls.Count} repositories processed";
             }
-            var summary = $"User repository download finished.{Environment.NewLine}Successful: {completed}{Environment.NewLine}Failed: {failed.Count}";
+            var summary = $"User repository download finished.{Environment.NewLine}Downloaded: {completed}{Environment.NewLine}Skipped (already present): {skipped}{Environment.NewLine}Failed: {failed.Count}";
             if (failed.Count > 0) summary += Environment.NewLine + Environment.NewLine + "Failed repositories:" + Environment.NewLine + string.Join(Environment.NewLine, failed);
             _status.Text = $"User download complete: {completed} successful, {failed.Count} failed";
             AppendLog(summary.Replace(Environment.NewLine, " | "));
@@ -383,16 +395,16 @@ split.SizeChanged += (_, _) =>
             _progress.Minimum = 0;
             _progress.Maximum = Math.Max(1, records.Count);
             _progress.Value = 0;
-            var completed = 0;
+            var completedIndexes = new HashSet<int>();
             IProgress<string> progress = new Progress<string>(message =>
             {
                 AppendLog(message);
                 _status.Text = message;
-                if (message.StartsWith("[", StringComparison.Ordinal))
-                {
-                    completed++;
-                    _progress.Value = Math.Min(_progress.Maximum, completed);
-                }
+                var closeBracket = message.IndexOf(']');
+                var slash = message.IndexOf('/');
+                if (message.StartsWith("[", StringComparison.Ordinal) && slash > 1 && closeBracket > slash &&
+                    int.TryParse(message.AsSpan(1, slash - 1), out var index) && completedIndexes.Add(index))
+                    _progress.Value = Math.Min(_progress.Maximum, completedIndexes.Count);
             });
 
             var updated = await _archive.RefreshPublicMetadataAsync(records, progress, _cts.Token);
