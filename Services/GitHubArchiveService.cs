@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using GitHubRepositoryExplorer.Models;
 
@@ -14,7 +15,7 @@ public sealed class GitHubArchiveService
     public GitHubArchiveService(DatabaseService db)
     {
         _db=db;
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.5");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.6");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
         _webHttp.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.5 (public source downloader)");
         _webHttp.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
@@ -65,10 +66,10 @@ public sealed class GitHubArchiveService
                 if(!string.IsNullOrWhiteSpace(dl)){var md=await _http.GetStringAsync(dl,ct); await File.WriteAllTextAsync(Path.Combine(target,"README.md"),md,ct); _db.SaveDetails(id,"readme",md);}}
         } catch(HttpRequestException ex){_db.LogEvent(id,"Warning","README: "+ex.Message);}
         record.Status="Archived";record.LastUpdatedUtc=DateTime.UtcNow.ToString("O");_db.UpsertRepository(record);
+        WriteManifest(target, record);
         _db.LogEvent(id,"Archive","Default-branch source and accessible metadata archived.");progress.Report("Archive completed.");return record;
     }
-    // Source-only downloads deliberately use github.com HTML and codeload.github.com,
-    // not api.github.com. This avoids consuming the GitHub REST API request quota.
+    // Source-only downloads use public GitHub HTML and codeload.github.com rather than the REST API.
     public async Task DownloadSourceAsync(string inputUrl, string outputRoot, string? token, IProgress<string> progress, CancellationToken ct)
     {
         if (!Uri.TryCreate(inputUrl.Trim(), UriKind.Absolute, out var uri) ||
@@ -81,23 +82,56 @@ public sealed class GitHubArchiveService
         var owner = parts[0];
         var repo = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1];
         var repositoryUrl = $"https://github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}";
+        var fullName = $"{owner}/{repo}";
 
-        progress.Report($"Reading public repository page for {owner}/{repo} (no REST API calls)...");
+        progress.Report($"Reading public repository page for {fullName} (no REST API calls)...");
         using var pageResponse = await _webHttp.GetAsync(repositoryUrl, ct);
         pageResponse.EnsureSuccessStatusCode();
         var html = await pageResponse.Content.ReadAsStringAsync(ct);
-        var branchMatch = Regex.Match(html, @"[""'](?:defaultBranch|default_branch)[""']?\s*:\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase);
-        if (!branchMatch.Success)
-            branchMatch = Regex.Match(html, @"""defaultBranch""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
-        if (!branchMatch.Success)
+
+        var branch = ExtractJsonString(html, "defaultBranch") ??
+                     ExtractJsonString(html, "default_branch");
+        if (string.IsNullOrWhiteSpace(branch))
+        {
+            var branchMatch = Regex.Match(html, @"[""'](?:defaultBranch|default_branch)[""']?\s*:\s*[""']([^""']+)[""']", RegexOptions.IgnoreCase);
+            if (!branchMatch.Success)
+                branchMatch = Regex.Match(html, @"""defaultBranch""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+            if (branchMatch.Success)
+                branch = System.Net.WebUtility.HtmlDecode(branchMatch.Groups[1].Value);
+        }
+        if (string.IsNullOrWhiteSpace(branch))
             throw new InvalidOperationException($"Could not determine the default branch from {repositoryUrl}. GitHub may have changed its page format or is temporarily throttling requests.");
-        var branch = System.Net.WebUtility.HtmlDecode(branchMatch.Groups[1].Value);
-        var fullName = $"{owner}/{repo}";
+
+        var description = ExtractMetaContent(html, "og:description") ??
+                          ExtractJsonString(html, "description") ?? "";
+        var languageMatch = Regex.Match(html, @"""primaryLanguage""\s*:\s*\{\s*""name""\s*:\s*""([^""]+)""", RegexOptions.IgnoreCase);
+        var language = languageMatch.Success ? System.Net.WebUtility.HtmlDecode(languageMatch.Groups[1].Value) : "";
+        var stars = ExtractJsonLong(html, "stargazerCount") ?? ExtractJsonLong(html, "stargazers_count") ?? 0;
+        var forks = ExtractJsonLong(html, "forkCount") ?? ExtractJsonLong(html, "forks_count") ?? 0;
+
         var target = Path.Combine(outputRoot, Sanitize(fullName.Replace('/', '_')));
         Directory.CreateDirectory(target);
+        if (!Directory.Exists(target))
+            throw new IOException($"The repository destination folder could not be created: {target}");
         var zipPath = Path.Combine(target, "source.zip");
 
-        // Use codeload directly rather than api.github.com/repos/.../zipball.
+        var record = new RepositoryRecord
+        {
+            RepositoryId = "github:" + fullName.ToLowerInvariant(),
+            FullName = fullName,
+            Url = repositoryUrl,
+            Description = description,
+            Language = language,
+            Stars = stars,
+            Forks = forks,
+            DefaultBranch = branch,
+            LocalPath = target,
+            Status = "Downloading",
+            LastUpdatedUtc = DateTime.UtcNow.ToString("O")
+        };
+        _db.UpsertRepository(record);
+        WriteManifest(target, record);
+
         var encodedBranch = string.Join("/", branch.Split('/').Select(Uri.EscapeDataString));
         var zipUrl = $"https://codeload.github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/zip/refs/heads/{encodedBranch}";
         progress.Report($"Downloading {fullName} ({branch}) directly from GitHub archive host...");
@@ -114,7 +148,43 @@ public sealed class GitHubArchiveService
         if (Directory.Exists(source)) Directory.Delete(source, true);
         Directory.CreateDirectory(source);
         ZipFile.ExtractToDirectory(zipPath, source, true);
-        progress.Report($"Download completed: {fullName} — source.zip and extracted source files saved to {target}");
+        record.Status = "Downloaded";
+        record.LastUpdatedUtc = DateTime.UtcNow.ToString("O");
+        _db.UpsertRepository(record);
+        WriteManifest(target, record);
+        progress.Report($"Download completed: {fullName} — stars: {stars:N0}, forks: {forks:N0}; source.zip and extracted files saved to {target}");
+    }
+
+    private static string? ExtractJsonString(string html, string propertyName)
+    {
+        var match = Regex.Match(html, "\"" + Regex.Escape(propertyName) + "\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"", RegexOptions.IgnoreCase);
+        if (!match.Success) return null;
+        try { return JsonSerializer.Deserialize<string>("\"" + match.Groups[1].Value + "\""); }
+        catch (JsonException) { return match.Groups[1].Value; }
+    }
+
+    private static long? ExtractJsonLong(string html, string propertyName)
+    {
+        var match = Regex.Match(html, "\"" + Regex.Escape(propertyName) + "\"\\s*:\\s*(\\d+)", RegexOptions.IgnoreCase);
+        return match.Success && long.TryParse(match.Groups[1].Value, out var value) ? value : null;
+    }
+
+    private static string? ExtractMetaContent(string html, string property)
+    {
+        var escaped = Regex.Escape(property);
+        var match = Regex.Match(html, "<meta\\s+[^>]*(?:property|name)=[\"" + "'" + "]" + escaped + "[\"" + "'" + "][^>]*content=[\"" + "'" + "]([^\"" + "'" + "]*)[\"" + "'" + "]", RegexOptions.IgnoreCase);
+        if (!match.Success)
+        {
+            match = Regex.Match(html, "<meta\\s+[^>]*content=[\"" + "'" + "]([^\"" + "'" + "]*)[\"" + "'" + "][^>]*(?:property|name)=[\"" + "'" + "]" + escaped + "[\"" + "'" + "]", RegexOptions.IgnoreCase);
+        }
+        return match.Success ? System.Net.WebUtility.HtmlDecode(match.Groups[1].Value) : null;
+    }
+
+    private static void WriteManifest(string target, RepositoryRecord record)
+    {
+        var path = Path.Combine(target, "ArchiveManifest.json");
+        var json = JsonSerializer.Serialize(record, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(path, json);
     }
 
     public async Task<List<string>> GetUserRepositoryUrlsAsync(string profileUrl, string? token, IProgress<string> progress, CancellationToken ct)
