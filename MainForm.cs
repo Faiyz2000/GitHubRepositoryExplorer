@@ -26,7 +26,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.7.0";
+        Text = "GitHub Repository Explorer — v0.7.1";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -284,12 +284,17 @@ split.SizeChanged += (_, _) =>
             _cancelButton.Enabled = true;
             _progress.Style = ProgressBarStyle.Blocks;
             _progress.Minimum = 0;
-            _progress.Maximum = 1;
+            _progress.Maximum = GitHubArchiveService.SourceDownloadSteps;
             _progress.Value = 0;
-            IProgress<string> progress = new Progress<string>(m => { _status.Text = $"0/1 repositories processed — {m}"; AppendLog(m); });
-            await _archive.DownloadSourceAsync(url, _output.Text.Trim(), _token.Text, progress, _cts.Token);
-            _progress.Value = 1;
-            _status.Text = "1/1 repositories processed";
+            IProgress<string> progress = new Progress<string>(m => { _status.Text = $"{_progress.Value}/{_progress.Maximum} download stages — {m}"; AppendLog(m); });
+            Action<int> stepProgress = step =>
+            {
+                _progress.Value = Math.Clamp(step, _progress.Minimum, _progress.Maximum);
+                _status.Text = $"{_progress.Value}/{_progress.Maximum} download stages completed";
+            };
+            await _archive.DownloadSourceAsync(url, _output.Text.Trim(), _token.Text, progress, _cts.Token, stepProgress);
+            _progress.Value = _progress.Maximum;
+            _status.Text = $"{_progress.Maximum}/{_progress.Maximum} download stages completed";
             MessageBox.Show(this, "Source download completed. The ZIP and extracted source files were saved under the output folder.", "Download Source");
         }
         catch (OperationCanceledException) { AppendLog("Download cancelled."); _status.Text = "Cancelled"; }
@@ -331,18 +336,25 @@ split.SizeChanged += (_, _) =>
             var failed = new List<string>();
             _progress.Style = ProgressBarStyle.Blocks;
             _progress.Minimum = 0;
-            _progress.Maximum = urls.Count;
+            var stepsPerRepository = GitHubArchiveService.SourceDownloadSteps;
+            _progress.Maximum = Math.Max(1, urls.Count * stepsPerRepository);
             _progress.Value = 0;
-            IProgress<string> progress = new Progress<string>(m =>
-            {
-                _status.Text = $"{processed}/{urls.Count} repositories processed — {m}";
-                AppendLog(m);
-            });
-            _status.Text = $"0/{urls.Count} repositories processed";
+            _status.Text = $"0/{urls.Count} repositories processed — 0/{_progress.Maximum} download stages";
             foreach (var repositoryUrl in urls)
             {
                 _cts.Token.ThrowIfCancellationRequested();
                 var name = new Uri(repositoryUrl).AbsolutePath.Trim('/');
+                var repositoryBaseStep = processed * stepsPerRepository;
+                IProgress<string> progress = new Progress<string>(m =>
+                {
+                    _status.Text = $"{processed}/{urls.Count} repositories processed — {_progress.Value}/{_progress.Maximum} stages — {m}";
+                    AppendLog(m);
+                });
+                Action<int> stepProgress = step =>
+                {
+                    _progress.Value = Math.Clamp(repositoryBaseStep + step, _progress.Minimum, _progress.Maximum);
+                    _status.Text = $"{processed}/{urls.Count} repositories processed — {_progress.Value}/{_progress.Maximum} stages completed";
+                };
                 try
                 {
                     if (TryGetRepositoryFolder(repositoryUrl, _output.Text.Trim(), out var existingTarget) &&
@@ -355,7 +367,7 @@ split.SizeChanged += (_, _) =>
                     else
                     {
                         progress.Report($"Downloading {name} ({processed + 1}/{urls.Count})...");
-                        await _archive.DownloadSourceAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+                        await _archive.DownloadSourceAsync(repositoryUrl, _output.Text.Trim(), _token.Text, progress, _cts.Token, stepProgress);
                         completed++;
                         await Task.Delay(300, _cts.Token);
                     }
@@ -364,8 +376,8 @@ split.SizeChanged += (_, _) =>
                 catch (Exception ex) { failed.Add(name); AppendLog($"FAILED {name}: {ex.Message}"); }
 
                 processed++;
-                _progress.Value = processed;
-                _status.Text = $"{processed}/{urls.Count} repositories processed";
+                _progress.Value = Math.Min(_progress.Maximum, processed * stepsPerRepository);
+                _status.Text = $"{processed}/{urls.Count} repositories processed — {_progress.Value}/{_progress.Maximum} stages completed";
             }
             var summary = $"User repository download finished.{Environment.NewLine}Downloaded: {completed}{Environment.NewLine}Skipped (already present): {skipped}{Environment.NewLine}Failed: {failed.Count}";
             if (failed.Count > 0) summary += Environment.NewLine + Environment.NewLine + "Failed repositories:" + Environment.NewLine + string.Join(Environment.NewLine, failed);
