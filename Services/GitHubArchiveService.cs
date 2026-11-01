@@ -159,6 +159,7 @@ public sealed class GitHubArchiveService
         pageResponse.EnsureSuccessStatusCode();
         var html = await pageResponse.Content.ReadAsStringAsync(ct);
         onStepProgress?.Invoke(1); // Repository page fetched.
+        progress.Report($"Repository page fetched for {fullName}.");
 
         var branch = ExtractJsonString(html, "defaultBranch") ??
                      ExtractJsonString(html, "default_branch");
@@ -180,6 +181,7 @@ public sealed class GitHubArchiveService
         var stars = ExtractJsonLong(html, "stargazerCount") ?? ExtractJsonLong(html, "stargazers_count") ?? 0;
         var forks = ExtractJsonLong(html, "forkCount") ?? ExtractJsonLong(html, "forks_count") ?? 0;
         onStepProgress?.Invoke(2); // Repository metadata parsed.
+        progress.Report($"Parsed metadata for {fullName}: branch {branch}, stars {stars:N0}, forks {forks:N0}.");
 
         var target = Path.Combine(outputRoot, Sanitize(fullName.Replace('/', '_')));
         Directory.CreateDirectory(target);
@@ -204,6 +206,7 @@ public sealed class GitHubArchiveService
         _db.UpsertRepository(record);
         WriteManifest(target, record);
         onStepProgress?.Invoke(3); // Destination and initial manifest prepared.
+        progress.Report($"Prepared destination folder and initial manifest: {target}");
 
         var encodedBranch = string.Join("/", branch.Split('/').Select(Uri.EscapeDataString));
         var zipUrl = $"https://codeload.github.com/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/zip/refs/heads/{encodedBranch}";
@@ -217,17 +220,20 @@ public sealed class GitHubArchiveService
             await zipResponse.Content.CopyToAsync(fs, ct);
         }
         onStepProgress?.Invoke(4); // ZIP downloaded.
+        progress.Report($"Downloaded source ZIP to {zipPath}");
 
         var source = Path.Combine(target, "source");
         if (Directory.Exists(source)) Directory.Delete(source, true);
         Directory.CreateDirectory(source);
         ZipFile.ExtractToDirectory(zipPath, source, true);
         onStepProgress?.Invoke(5); // Source archive extracted.
+        progress.Report($"Extracted source files to {source}");
         record.Status = "Downloaded";
         record.LastUpdatedUtc = DateTime.UtcNow.ToString("O");
         _db.UpsertRepository(record);
         WriteManifest(target, record);
         onStepProgress?.Invoke(6); // Final catalog and manifest saved.
+        progress.Report($"Saved final repository catalog entry and manifest for {fullName}");
         progress.Report($"Download completed: {fullName} — stars: {stars:N0}, forks: {forks:N0}; source.zip and extracted files saved to {target}");
     }
 
