@@ -15,9 +15,9 @@ public sealed class GitHubArchiveService
     public GitHubArchiveService(DatabaseService db)
     {
         _db=db;
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.6");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.7");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        _webHttp.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.5 (public source downloader)");
+        _webHttp.DefaultRequestHeaders.UserAgent.ParseAdd("GitHubRepositoryExplorer/0.7 (public source downloader)");
         _webHttp.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
     }
 
