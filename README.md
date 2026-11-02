@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.7.1** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.7.2** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -13,6 +13,11 @@
 6. Choose **Debug → Start Debugging** (F5) or **Start Without Debugging** (Ctrl+F5).
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
+
+## v0.7.2
+
+- Added a self-contained, single-file publish profile for 64-bit Windows. The published executable includes the .NET runtime and bundles required native libraries, so the target PC does not need a separate .NET installation.
+- Added a GitHub Actions workflow that builds the single-file executable and publishes it as a downloadable workflow artifact.
 
 ## v0.7.1
 
