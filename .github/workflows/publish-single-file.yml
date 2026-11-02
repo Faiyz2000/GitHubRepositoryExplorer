@@ -1,0 +1,32 @@
+name: Publish single-file Windows executable
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish self-contained single-file EXE
+        run: dotnet publish .\GitHubRepositoryExplorer.csproj -c Release /p:PublishProfile=SingleFile-win-x64
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitHubRepositoryExplorer-win-x64
+          path: bin/Release/net8.0-windows/win-x64/publish/GitHubRepositoryExplorer.exe
+          if-no-files-found: error
+          retention-days: 30
