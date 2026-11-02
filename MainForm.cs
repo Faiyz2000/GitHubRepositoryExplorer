@@ -26,7 +26,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.7.1";
+        Text = "GitHub Repository Explorer — v0.7.3";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -136,7 +136,10 @@ split.SizeChanged += (_, _) =>
     {
         _grid.Dock = DockStyle.Fill; _grid.AutoGenerateColumns = false; _grid.AllowUserToAddRows = false;
         _grid.ReadOnly = true; _grid.MultiSelect = false; _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; _grid.RowHeadersVisible = false;
+        // Size each column to its header and cell contents; prevent manual column resizing.
+        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.AllCells;
+        _grid.AllowUserToResizeColumns = false;
+        _grid.RowHeadersVisible = false;
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Repository", DataPropertyName=nameof(RepositoryRecord.FullName), FillWeight=150, MinimumWidth=130 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Language", DataPropertyName=nameof(RepositoryRecord.Language), FillWeight=65, MinimumWidth=70 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText="Stars", DataPropertyName=nameof(RepositoryRecord.Stars), FillWeight=45, MinimumWidth=55 });
