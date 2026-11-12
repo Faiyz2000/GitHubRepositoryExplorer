@@ -11,12 +11,13 @@ public sealed class MainForm : Form
 {
     private readonly DatabaseService _db = new();
     private readonly GitHubArchiveService _archive;
+    private readonly RepositoryReadmeService _readmeService = new();
     private readonly BindingList<RepositoryRecord> _rows = new();
     private readonly DataGridView _grid = new();
     private readonly TextBox _url = new(), _output = new(), _token = new(), _search = new(), _details = new(), _log = new();
     private readonly ProgressBar _progress = new();
     private readonly Label _status = new();
-    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new(), _refreshButton = new();
+    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new(), _refreshButton = new(), _readmeButton = new();
     private CancellationTokenSource? _cts;
     private float _fontSize = 9.5f;
     private int _sortColumnIndex = 0;
@@ -26,7 +27,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.7.3";
+        Text = "GitHub Repository Explorer — v0.8.0";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -58,7 +59,16 @@ public sealed class MainForm : Form
         top.Controls.Add(MakeButton("Browse…", (_, _) => BrowseOutput()), 4, 0);
         root.Controls.Add(top, 0, 0);
 
-        var actions = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = true, Padding = new Padding(0, 8, 0, 8) };
+        var actionHost = new Panel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(0, 8, 0, 8) };
+        var actions = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            WrapContents = true,
+            FlowDirection = FlowDirection.LeftToRight,
+            Padding = new Padding(0)
+        };
         actions.Controls.Add(MakeButton("Add Repository", (_, _) => AddRepository()));
         _downloadButton.Text = "Download Source"; _downloadButton.AutoSize = true;
         _downloadButton.Click += async (_, _) => await DownloadSelectedOrUrlAsync(); actions.Controls.Add(_downloadButton);
@@ -76,7 +86,12 @@ public sealed class MainForm : Form
         actions.Controls.Add(MakeButton("Font −", (_, _) => ChangeFont(-1)));
         actions.Controls.Add(MakeButton("Font +", (_, _) => ChangeFont(1)));
         _refreshButton.Text = "Refresh List"; _refreshButton.AutoSize = true; _refreshButton.Click += async (_, _) => await RefreshListAsync(); actions.Controls.Add(_refreshButton);
-        root.Controls.Add(actions, 0, 1);
+        _readmeButton.Text = "Download Repository Info";
+        _readmeButton.AutoSize = true;
+        _readmeButton.Click += async (_, _) => await DownloadRepositoryInfoAsync();
+        actions.Controls.Add(_readmeButton);
+        actionHost.Controls.Add(actions);
+        root.Controls.Add(actionHost, 0, 1);
 
         var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
 // The SplitContainer can initially be narrower than the requested panel widths.
@@ -397,12 +412,72 @@ split.SizeChanged += (_, _) =>
         }
     }
 
+    private async Task DownloadRepositoryInfoAsync()
+    {
+        var url = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected)
+            url = selected.Url;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
+            !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, "Enter a valid GitHub repository URL or select a repository.", "Repository required");
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(_output.Text.Trim());
+            _cts = new CancellationTokenSource();
+            SetOperationButtons(false);
+            _cancelButton.Enabled = true;
+            _progress.Style = ProgressBarStyle.Marquee;
+            _status.Text = "Downloading repository information...";
+
+            IProgress<string> progress = new Progress<string>(message =>
+            {
+                _status.Text = message;
+                AppendLog(message);
+            });
+
+            var htmlPath = await _readmeService.DownloadRepositoryInfoAsync(
+                url, _output.Text.Trim(), _token.Text, progress, _cts.Token);
+
+            _progress.Style = ProgressBarStyle.Blocks;
+            _progress.Value = 0;
+            _status.Text = "Repository information downloaded.";
+
+            var name = uri.AbsolutePath.Trim('/');
+            using var viewer = new RepositoryInfoForm(htmlPath, name);
+            viewer.ShowDialog(this);
+        }
+        catch (OperationCanceledException)
+        {
+            _status.Text = "Repository information download cancelled";
+            AppendLog("Repository information download cancelled.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Repository information error: " + ex.Message);
+            MessageBox.Show(this, ex.Message, "Repository information failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _progress.Style = ProgressBarStyle.Blocks;
+            SetOperationButtons(true);
+            _cancelButton.Enabled = false;
+            _cts?.Dispose();
+            _cts = null;
+        }
+    }
+
     private void SetOperationButtons(bool enabled)
     {
         _downloadButton.Enabled = enabled;
         _archiveButton.Enabled = enabled;
         _userDownloadButton.Enabled = enabled;
         _refreshButton.Enabled = enabled;
+        _readmeButton.Enabled = enabled;
     }
 
     private async Task RefreshListAsync()
