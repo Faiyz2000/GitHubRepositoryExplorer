@@ -37,42 +37,65 @@ public sealed class RepositoryReadmeService
         progress?.Report($"Downloading rendered README for {owner}/{repo}...");
         using var request = new HttpRequestMessage(HttpMethod.Get,
             $"https://api.github.com/repos/{Uri.EscapeDataString(owner)}/{Uri.EscapeDataString(repo)}/readme");
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.html+json"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Add("X-GitHub-Api-Version", "2026-03-10");
 
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
 
         var json = await response.Content.ReadAsStringAsync(ct);
-        using var document = JsonDocument.Parse(json);
-        var root = document.RootElement;
-        var html = root.TryGetProperty("html", out var htmlElement) ? htmlElement.GetString() : null;
-        if (string.IsNullOrWhiteSpace(html))
-            throw new InvalidOperationException("GitHub did not return rendered README content.");
 
-        var readmeName = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? "README.md" : "README.md";
-        var readmePath = root.TryGetProperty("path", out var pathElement) ? pathElement.GetString() ?? readmeName : readmeName;
-        var htmlUrl = root.TryGetProperty("html_url", out var htmlUrlElement)
-            ? htmlUrlElement.GetString() ?? $"https://github.com/{owner}/{repo}"
-            : $"https://github.com/{owner}/{repo}";
+        // Request the README as the standard GitHub JSON representation.
+        // The HTML representation is rendered separately through GitHub's
+        // Markdown endpoint. This avoids treating an HTML response body as JSON
+        // when an intermediary/proxy or GitHub media-type negotiation changes
+        // the response representation.
+        JsonDocument document;
+        try
+        {
+            document = JsonDocument.Parse(json);
+        }
+        catch (JsonException ex)
+        {
+            var preview = json.Length > 160 ? json[..160] : json;
+            throw new InvalidOperationException(
+                $"GitHub returned a non-JSON response while requesting repository information. Response begins with: {preview}",
+                ex);
+        }
 
-        var rawMarkdown = DecodeRepositoryContent(root);
-        await File.WriteAllTextAsync(Path.Combine(target, readmeName), rawMarkdown, new UTF8Encoding(false), ct);
+        using (document)
+        {
+            var root = document.RootElement;
 
-        progress?.Report($"README retrieved: {readmePath}. Downloading embedded images and assets...");
-        var assetDirectory = Path.Combine(target, "READMEAssets");
+            var readmeName = root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? "README.md" : "README.md";
+            var readmePath = root.TryGetProperty("path", out var pathElement) ? pathElement.GetString() ?? readmeName : readmeName;
+            var htmlUrl = root.TryGetProperty("html_url", out var htmlUrlElement)
+                ? htmlUrlElement.GetString() ?? $"https://github.com/{owner}/{repo}"
+                : $"https://github.com/{owner}/{repo}";
+
+            var rawMarkdown = DecodeRepositoryContent(root);
+            if (string.IsNullOrWhiteSpace(rawMarkdown))
+                throw new InvalidOperationException("GitHub returned an empty README.");
+
+            await File.WriteAllTextAsync(Path.Combine(target, readmeName), rawMarkdown, new UTF8Encoding(false), ct);
+
+            progress?.Report($"README retrieved: {readmePath}. Rendering README and downloading embedded images and assets...");
+            var renderedHtml = await RenderMarkdownAsync(rawMarkdown, owner, repo, ct);
+
+            var assetDirectory = Path.Combine(target, "READMEAssets");
         Directory.CreateDirectory(assetDirectory);
 
-        var rewrittenHtml = await DownloadAndRewriteImagesAsync(
-            html, htmlUrl, owner, repo, rawMarkdown, assetDirectory, progress, ct);
+            var rewrittenHtml = await DownloadAndRewriteImagesAsync(
+                renderedHtml, htmlUrl, owner, repo, rawMarkdown, assetDirectory, progress, ct);
 
-        var htmlPath = Path.Combine(target, "README.html");
-        await File.WriteAllTextAsync(
-            htmlPath,
-            BuildStandaloneHtml($"{owner}/{repo}", rewrittenHtml, htmlUrl),
-            new UTF8Encoding(false),
-            ct);
+            var htmlPath = Path.Combine(target, "README.html");
+            await File.WriteAllTextAsync(
+                htmlPath,
+                BuildStandaloneHtml($"{owner}/{repo}", rewrittenHtml, htmlUrl),
+                new UTF8Encoding(false),
+                ct);
 
-        var manifest = new
+            var manifest = new
         {
             repository = $"{owner}/{repo}",
             repositoryUrl = $"https://github.com/{owner}/{repo}",
@@ -84,14 +107,40 @@ public sealed class RepositoryReadmeService
             assetsFolder = Path.GetFileName(assetDirectory)
         };
 
-        await File.WriteAllTextAsync(
-            Path.Combine(target, "RepositoryInfoManifest.json"),
-            JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
-            new UTF8Encoding(false),
-            ct);
+            await File.WriteAllTextAsync(
+                Path.Combine(target, "RepositoryInfoManifest.json"),
+                JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
+                new UTF8Encoding(false),
+                ct);
 
-        progress?.Report($"Repository information saved to {target}");
-        return htmlPath;
+            progress?.Report($"Repository information saved to {target}");
+            return htmlPath;
+        }
+    }
+
+    private async Task<string> RenderMarkdownAsync(string rawMarkdown, string owner, string repo, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.github.com/markdown");
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/html"));
+        request.Headers.Add("X-GitHub-Api-Version", "2026-03-10");
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            text = rawMarkdown,
+            mode = "gfm",
+            context = $"{owner}/{repo}"
+        });
+
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+        response.EnsureSuccessStatusCode();
+
+        var html = await response.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(html))
+            throw new InvalidOperationException("GitHub returned an empty rendered README.");
+
+        return html;
     }
 
     private async Task<string> DownloadAndRewriteImagesAsync(
