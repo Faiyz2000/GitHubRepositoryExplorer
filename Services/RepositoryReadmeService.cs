@@ -255,31 +255,31 @@ public sealed class RepositoryReadmeService
 
     private static string BuildStandaloneHtml(string repository, string body, string repositoryUrl)
     {
-        return $"""
+        return $$"""
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{System.Net.WebUtility.HtmlEncode(repository)} - README</title>
+<title>{{System.Net.WebUtility.HtmlEncode(repository)}} - README</title>
 <style>
-body {{ margin:0; padding:28px; background:#fff; color:#24292f; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.55; }}
-.markdown-body {{ max-width:1100px; margin:0 auto; overflow-wrap:anywhere; }}
-.markdown-body img {{ max-width:100%; height:auto; }}
-.markdown-body table {{ border-collapse:collapse; width:100%; display:block; overflow-x:auto; }}
-.markdown-body th,.markdown-body td {{ border:1px solid #d0d7de; padding:6px 13px; }}
-.markdown-body th {{ font-weight:600; background:#f6f8fa; }}
-.markdown-body pre {{ background:#f6f8fa; padding:16px; overflow:auto; border-radius:6px; }}
-.markdown-body code {{ font-family:Consolas,"Courier New",monospace; }}
-.markdown-body blockquote {{ margin:0; padding:0 1em; color:#57606a; border-left:.25em solid #d0d7de; }}
-.markdown-body details {{ margin:10px 0; }}
-a {{ color:#0969da; }}
-.repository-link {{ max-width:1100px; margin:0 auto 22px auto; padding-bottom:12px; border-bottom:1px solid #d8dee4; font-size:13px; }}
+body { margin:0; padding:28px; background:#fff; color:#24292f; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.55; }
+.markdown-body { max-width:1100px; margin:0 auto; overflow-wrap:anywhere; }
+.markdown-body img { max-width:100%; height:auto; }
+.markdown-body table { border-collapse:collapse; width:100%; display:block; overflow-x:auto; }
+.markdown-body th,.markdown-body td { border:1px solid #d0d7de; padding:6px 13px; }
+.markdown-body th { font-weight:600; background:#f6f8fa; }
+.markdown-body pre { background:#f6f8fa; padding:16px; overflow:auto; border-radius:6px; }
+.markdown-body code { font-family:Consolas,"Courier New",monospace; }
+.markdown-body blockquote { margin:0; padding:0 1em; color:#57606a; border-left:.25em solid #d0d7de; }
+.markdown-body details { margin:10px 0; }
+a { color:#0969da; }
+.repository-link { max-width:1100px; margin:0 auto 22px auto; padding-bottom:12px; border-bottom:1px solid #d8dee4; font-size:13px; }
 </style>
 </head>
 <body>
-<div class="repository-link">Repository: <strong>{System.Net.WebUtility.HtmlEncode(repository)}</strong> &nbsp;·&nbsp; <a href="{System.Net.WebUtility.HtmlEncode(repositoryUrl)}">Open original GitHub repository</a></div>
-<article class="markdown-body">{body}</article>
+<div class="repository-link">Repository: <strong>{{System.Net.WebUtility.HtmlEncode(repository)}}</strong> &nbsp;·&nbsp; <a href="{{System.Net.WebUtility.HtmlEncode(repositoryUrl)}}">Open original GitHub repository</a></div>
+<article class="markdown-body">{{body}}</article>
 </body>
 </html>
 """;
