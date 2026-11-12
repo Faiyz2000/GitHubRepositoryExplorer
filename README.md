@@ -1,5 +1,5 @@
 # GitHub Repository Explorer
-**Version 0.7.3** · C# Windows Forms · .NET 8 · SQLite
+**Version 0.8.0** · C# Windows Forms · .NET 8 · SQLite
 
 ## Open in Visual Studio 2022
 
@@ -13,6 +13,13 @@
 6. Choose **Debug → Start Debugging** (F5) or **Start Without Debugging** (Ctrl+F5).
 
 The `.vsconfig` file at the repository root declares the recommended Visual Studio workload and can be used by Visual Studio Installer to install missing components.
+
+## v0.8.0
+
+- Added **Download Repository Info**. The app retrieves GitHub's rendered README HTML through the GitHub README endpoint, saves the original README source, downloads embedded README images/assets where accessible, and opens the rendered information inside the application.
+- README tables, images, links, code blocks, blockquotes, lists, `<details>` content and other HTML components returned by GitHub's renderer are preserved in the local viewer.
+- Repository information is stored under the selected output folder in the repository folder, alongside `README.html`, the README source, `READMEAssets`, and `RepositoryInfoManifest.json`.
+- The action toolbar now uses a responsive auto-sizing wrapping layout. Increasing the Font + size expands the toolbar vertically and moves buttons to subsequent rows instead of overlapping or disappearing.
 
 ## v0.7.3
 
@@ -58,6 +65,7 @@ The `.vsconfig` file at the repository root declares the recommended Visual Stud
 - Two databases: `RepositoryCatalog.db` for the repository library and `RepositoryDetails.db` for per-repository metadata and archive events.
 - **Download Source**: downloads the selected repository's default-branch ZIP and extracts the source into the output folder. It does not register the repository or capture metadata.
 - **Archive Repository**: downloads and extracts the default-branch source, registers repository metadata in the catalog database, and captures supported GitHub API metadata.
+- **Download Repository Info**: downloads GitHub-rendered README information and local README assets for in-app viewing. This operation uses the GitHub README API endpoint and therefore can consume GitHub REST API rate limit; an optional token can be supplied when needed.
 - **Download User Repositories**: takes a profile URL such as `https://github.com/morluto`, lists that user's public repositories from paginated GitHub website pages, then runs the same source-download workflow for each repository. Each gets a `source.zip` plus extracted files under its own folder. It does not register repositories or capture metadata. Forks owned by the user are included when GitHub lists them. This workflow targets public repositories.
 - Searchable repository grid, details panel, repository-count progress bar and activity log, cancel control.
 - Responsive docking/split layout, Per-Monitor-V2 DPI awareness, Font − / Font + controls.
