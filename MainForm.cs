@@ -27,7 +27,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.8.1";
+        Text = "GitHub Repository Explorer — v0.8.2";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -495,20 +495,24 @@ split.SizeChanged += (_, _) =>
         }
 
         var htmlPath = Path.Combine(target, "README.html");
+        var manifestPath = Path.Combine(target, "RepositoryInfoManifest.json");
 
-        if (!File.Exists(htmlPath))
+        // Repository information is considered available only when the saved
+        // rendered README and its manifest are both present in the repository folder.
+        // This keeps the View button strictly offline and prevents opening a partial download.
+        if (!File.Exists(htmlPath) || !File.Exists(manifestPath))
         {
             var answer = MessageBox.Show(
                 this,
-                $"No downloaded repository information was found for this repository.{Environment.NewLine}{Environment.NewLine}" +
-                $"Expected file:{Environment.NewLine}{htmlPath}{Environment.NewLine}{Environment.NewLine}" +
+                $"No complete downloaded repository information was found for this repository.{Environment.NewLine}{Environment.NewLine}" +
+                $"Repository folder:{Environment.NewLine}{target}{Environment.NewLine}{Environment.NewLine}" +
                 "Would you like to download the repository information now?",
                 "Repository information not found",
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Information);
 
             if (answer == DialogResult.Yes)
-                _ = DownloadRepositoryInfoAsync();
+                await DownloadRepositoryInfoAsync();
 
             return;
         }
