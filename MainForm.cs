@@ -92,7 +92,7 @@ public sealed class MainForm : Form
         actions.Controls.Add(_readmeButton);
         _viewReadmeButton.Text = "View Repository Info";
         _viewReadmeButton.AutoSize = true;
-        _viewReadmeButton.Click += (_, _) => ViewDownloadedRepositoryInfo();
+        _viewReadmeButton.Click += async (_, _) => await ViewDownloadedRepositoryInfoAsync();
         actions.Controls.Add(_viewReadmeButton);
         actionHost.Controls.Add(actions);
         root.Controls.Add(actionHost, 0, 1);
@@ -482,7 +482,7 @@ split.SizeChanged += (_, _) =>
         }
     }
 
-    private void ViewDownloadedRepositoryInfo()
+    private async Task ViewDownloadedRepositoryInfoAsync()
     {
         var url = _url.Text.Trim();
         if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected)
