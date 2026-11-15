@@ -102,7 +102,7 @@ public sealed class RepositoryReadmeService
             readmeName,
             readmePath,
             downloadedUtc = DateTime.UtcNow.ToString("O"),
-            renderedBy = "GitHub application/vnd.github.html+json",
+            renderedBy = "GitHub Markdown API (gfm)",
             readmeHtml = Path.GetFileName(htmlPath),
             assetsFolder = Path.GetFileName(assetDirectory)
         };
