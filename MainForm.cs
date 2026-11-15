@@ -17,7 +17,7 @@ public sealed class MainForm : Form
     private readonly TextBox _url = new(), _output = new(), _token = new(), _search = new(), _details = new(), _log = new();
     private readonly ProgressBar _progress = new();
     private readonly Label _status = new();
-    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new(), _refreshButton = new(), _readmeButton = new();
+    private readonly Button _downloadButton = new(), _archiveButton = new(), _userDownloadButton = new(), _cancelButton = new(), _refreshButton = new(), _readmeButton = new(), _viewReadmeButton = new();
     private CancellationTokenSource? _cts;
     private float _fontSize = 9.5f;
     private int _sortColumnIndex = 0;
@@ -27,7 +27,7 @@ public sealed class MainForm : Form
     public MainForm()
     {
         _archive = new GitHubArchiveService(_db);
-        Text = "GitHub Repository Explorer — v0.8.0";
+        Text = "GitHub Repository Explorer — v0.8.1";
         MinimumSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -90,6 +90,10 @@ public sealed class MainForm : Form
         _readmeButton.AutoSize = true;
         _readmeButton.Click += async (_, _) => await DownloadRepositoryInfoAsync();
         actions.Controls.Add(_readmeButton);
+        _viewReadmeButton.Text = "View Repository Info";
+        _viewReadmeButton.AutoSize = true;
+        _viewReadmeButton.Click += (_, _) => ViewDownloadedRepositoryInfo();
+        actions.Controls.Add(_viewReadmeButton);
         actionHost.Controls.Add(actions);
         root.Controls.Add(actionHost, 0, 1);
 
@@ -418,6 +422,12 @@ split.SizeChanged += (_, _) =>
         if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected)
             url = selected.Url;
 
+        if (!TryGetRepositoryFolder(url, _output.Text.Trim(), out var target))
+        {
+            MessageBox.Show(this, "Enter a valid GitHub repository URL or select a repository.", "Repository required");
+            return;
+        }
+
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
             !uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
         {
@@ -446,6 +456,7 @@ split.SizeChanged += (_, _) =>
             _progress.Style = ProgressBarStyle.Blocks;
             _progress.Value = 0;
             _status.Text = "Repository information downloaded.";
+            AppendLog($"Repository information saved to {target}");
 
             var name = uri.AbsolutePath.Trim('/');
             using var viewer = new RepositoryInfoForm(htmlPath, name);
@@ -471,6 +482,55 @@ split.SizeChanged += (_, _) =>
         }
     }
 
+    private void ViewDownloadedRepositoryInfo()
+    {
+        var url = _url.Text.Trim();
+        if (string.IsNullOrWhiteSpace(url) && Selected() is { } selected)
+            url = selected.Url;
+
+        if (!TryGetRepositoryFolder(url, _output.Text.Trim(), out var target))
+        {
+            MessageBox.Show(this, "Enter a valid GitHub repository URL or select a repository.", "Repository required");
+            return;
+        }
+
+        var htmlPath = Path.Combine(target, "README.html");
+
+        if (!File.Exists(htmlPath))
+        {
+            var answer = MessageBox.Show(
+                this,
+                $"No downloaded repository information was found for this repository.{Environment.NewLine}{Environment.NewLine}" +
+                $"Expected file:{Environment.NewLine}{htmlPath}{Environment.NewLine}{Environment.NewLine}" +
+                "Would you like to download the repository information now?",
+                "Repository information not found",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Information);
+
+            if (answer == DialogResult.Yes)
+                _ = DownloadRepositoryInfoAsync();
+
+            return;
+        }
+
+        try
+        {
+            var name = url;
+            if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                name = uri.AbsolutePath.Trim('/');
+
+            using var viewer = new RepositoryInfoForm(htmlPath, name);
+            viewer.ShowDialog(this);
+            _status.Text = "Repository information viewed offline.";
+            AppendLog($"Viewed downloaded repository information offline: {htmlPath}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog("Offline repository information error: " + ex.Message);
+            MessageBox.Show(this, ex.Message, "Could not view repository information", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
     private void SetOperationButtons(bool enabled)
     {
         _downloadButton.Enabled = enabled;
@@ -478,6 +538,7 @@ split.SizeChanged += (_, _) =>
         _userDownloadButton.Enabled = enabled;
         _refreshButton.Enabled = enabled;
         _readmeButton.Enabled = enabled;
+        _viewReadmeButton.Enabled = enabled;
     }
 
     private async Task RefreshListAsync()
